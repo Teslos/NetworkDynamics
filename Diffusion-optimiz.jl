@@ -41,6 +41,17 @@ sol = solve(ode_prob, Tsit5())
 #using Plots
 # Plotting the solution
 #plot(sol, lw=2, label="")
+# using the new plotting package GLMakie
+using GLMakie
+fig = Figure()
+ax = GLMakie.Axis(fig[1, 1]; xlabel = "Time", ylabel = "u", title = "Diffusion network")
+t= sol.t
+u = sol(sol.t)[1:N,:]
+for i in 1:N
+    lines!(ax, t, u[i,:], color = (:blue, 0.1))
+end
+fig
+GLMakie.save("diffusion_network_optimization.png",fig, px_per_unit = 4)
 
 # Learning the diffusion constant
 # using wrapper function to pass tuples as array of parameters
@@ -90,3 +101,18 @@ predict(pinit)
 loss(pinit)
 res = Optimization.solve(optprob,OptimizationOptimisers.Adam(0.05), callback=cb, maxiters=20)
 res
+pinit
+optprobr = remake(ode_prob; Σ=res.u)
+sol2 = solve(optprobr, Tsit5())
+
+# Plotting the solution
+# using the new plotting package GLMakie
+fig2 = Figure()
+ax = GLMakie.Axis(fig2[1, 1]; xlabel = "Time", ylabel = "u", title = "Fitted network")
+t= sol2.t
+u = sol2(sol2.t)[1:N,:]
+for i in 1:N
+    lines!(ax, t, u[i,:], color = (:blue, 0.1))
+end
+fig2
+GLMakie.save("diffusion_network_optimization_fitted.png",fig2, px_per_unit = 4)
