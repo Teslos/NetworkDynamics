@@ -56,5 +56,16 @@ prob = ODEProblem(fhn_network!, x0, tspan, p)
 sol = solve(prob, AutoTsit5(TRBDF2()))
 
 # Plotting the solution
-using Plots
-plot(sol, vars=idx_containing(fhn_network!, :u), legend=false, ylim = (-5,5), fmt=:png)
+#using Plots
+#plot(sol, vars=idx_containing(fhn_network!, :u), legend=false, ylim = (-5,5), fmt=:png)
+
+# using the new plotting package GLMakie
+using GLMakie
+fig = Figure()
+ax = Axis(fig[1, 1]; xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
+t= sol.t
+u = sol(sol.t)[1:N,:]
+for i in 1:N
+    lines!(ax, t, u[i,:], color = (:blue, 0.1))
+end
+fig
