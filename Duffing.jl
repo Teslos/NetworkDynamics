@@ -33,8 +33,9 @@ using NetworkDynamics
 Base.@propagate_inbounds function duffing_vertex!(dv, v, edges, p, t)
     dv[1] = v[2]
     # Duffing oscillator
-    # omega = ω - rand()*0.5
-    omega = ω
+    omega = ω - rand()*0.05
+    # we are setting the frequency to be constant 
+    # omega = ω
     dv[2] = -v[1] - β * v[1]^3 - d*v[2] + f*cos(omega*t)
     for e in edges
         dv[1] += e[1]
