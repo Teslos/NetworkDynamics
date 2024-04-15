@@ -15,5 +15,8 @@ cases.
 The oscillations in Duffing network using the random eigen frequencies chosen randomly around given value $\omega$:
 
 
-![Duffing oscillators](./duffing_barabasi_albert.png)
+![Duffing oscillators](./figs/duffing_barabasi_albert.png)
 
+Using the larger deviation from the average frequency produces this result:
+
+![Duffing oscillator 0.5](./figs/duffing_barabasi_albert_0_5.png)
