@@ -20,3 +20,7 @@ The oscillations in Duffing network using the random eigen frequencies chosen ra
 Using the larger deviation from the average frequency produces this result:
 
 ![Duffing oscillator 0.5](./figs/duffing_barabasi_albert_0_5.png)
+
+This are solution to the network graph of the brain system:
+
+![Duffing oscillator brain](./figs/duffing_brain_graph.png)

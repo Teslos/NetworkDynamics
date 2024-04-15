@@ -24,8 +24,8 @@ function create_barabasi_albert_graph()
 end
 
 
-#g_directed, edge_weights = create_graph()
-g_directed = create_barabasi_albert_graph()
+g_directed, edge_weights = create_graph()
+#g_directed = create_barabasi_albert_graph()
 edge_weights = ones(length(edges(g_directed)))
 
 using NetworkDynamics
@@ -54,7 +54,7 @@ odeeleedge = StaticEdge(; f=duffing_edge!, dim=1, coupling=:directed)
 duffing_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 
 # Parameter handling
-N = 100 # Number of nodes
+N = 90 # Number of nodes
 const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
 const a = 0.5
 const σ = 10.0
@@ -90,8 +90,8 @@ y = sol[1:N,:]
 for i in 1:N
     lines!(ax, t, y[i,:], color = (:blue, 0.1))
 end
-save("duffing_barabasi_albert.png",fig1, px_per_unit = 4)
+save("duffing_brain_graph.png",fig1, px_per_unit = 4)
 
 fig, ax, p = graphplot(g_directed)
 hidedecorations!(ax); hidespines!(ax);
-save("barabasi_albert.png",fig)
+save("brain_graph.png",fig)
