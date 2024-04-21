@@ -10,12 +10,26 @@ function create_graph(N::Int=8, M::Int=10)
     edge_weights = ones(length(edges(g)))
     return g, edge_weights
 end
+
 function plot_rect_map(N::Int, M::Int, data::Vector{Float64}, ax)
     #ax = GLMakie.Axis(f[1, 1])
     centers_x = 1:N
     centers_y = 1:M
     data = reshape(abs.(data), N, M)
-    GLMakie.heatmap!(ax, centers_x, centers_y, data, colormap = :greys)
+    GLMakie.heatmap!(ax, centers_x, centers_y, data, colormap = :viridis)
+end
+
+function plot_phases(N::Int, M::Int, u::Array{Float64,2}, t::Array{Float64,1}, x0::Array{Float64,1} ,forcing_period::Float64)
+    # Find the index of the value in t that is closest to t0 time
+    for t0 in forcing_period:100:2500
+        f = Figure()
+        ax = GLMakie.Axis(f[1, 1], xlabel = "Node", ylabel = "u", title = "Kuramoto network at time $t0")
+        index_closest_to_t = findmin(abs.(t .- t0))[2]
+        state_vector_at_t = [mod2pi((u[i,index_closest_to_t]-u[1,index_closest_to_t])-x0[i]) for i in 1:N*M]
+        plot_rect_map(N, M, state_vector_at_t, ax)
+        # record the frames
+        GLMakie.save("./figs/kuramoto_network_diff_phase_t$(t0).png",f, px_per_unit = 4)
+    end
 end
 ### Define the graph
 # @note: we are defining the diffrent graphs
@@ -25,18 +39,24 @@ end
 N=8; M=10
 g, edge_weights = create_graph(N, M)
 
-# create the vector of ξ_0 for the vertices
-ξ_0 = zeros(ComplexF64, nv(g))
-ξ_0[1:15] .= 1+0*im # activating the first part
-ξ_0[16:end] .= 0 # activating the end part
+# create the vector of vectors for the parameter values of the vertices
+ξ = [zeros(ComplexF64, nv(g)) for _ in 1:2]
+ξ[1][1:2:end] .= 0.1+0*im # activating the first part
+ξ[2][1:8] .= 0.1+0*im 
+ξ[2][9:8:end] .= 0.1+0*im
+ξ[2][8:8:end] .= 0.1+0*im
+ξ[2][end-7:end] .= 0.1+0*im
+#ξ_0[16:end] .= 0 # activating the end part
 f = GLMakie.Figure()
 ax = GLMakie.Axis(f[1, 1])
 f
-ξ_0 = normalize(ξ_0, 1)
-plot_rect_map(8,10, abs.(ξ_0),ax)
+ξ[1] = normalize(ξ[1])
+ξ[2] = normalize(ξ[2])
+plot_rect_map(8,10, abs.(ξ[2]),ax)
+f
 ω_0 = 1.0 # intrinsic frequency
-ϵ = 1000 # coupling strength
-ϵc = 0.01 # coupling strength for the edges
+ϵ = 100 # coupling strength
+ϵc = 0.1 # coupling strength for the edges
 forcing_period = 400.0 # forcing period
 
 # Functions for edges and vertices
@@ -70,6 +90,8 @@ Base.@propagate_inbounds function ki_force_vertex!(dv, v, edges, p, t)
 end
 # generating the random values for the parameter value ω_0 of the vertices close to 1
 #v_pars = [1.0 + 0.01*randn() for v in vertices(g)]
+ξ_0 = copy(ξ[1])
+ξ_0[1:6] .= 0.0
 v_pars = ξ_0
 # coupling strength of edges are set to 1/3 @@note: coupling strength of the edges should be given by the
 # coupling matrix C_ij = s_ij * exp(ψ_ij*im) where s_ij is the strength of the connection and ψ_ij is the phase difference
@@ -78,7 +100,11 @@ c_ij = zeros(ComplexF64,ne(g))
 i = 1
 for e in edges(g)
     u,v = src(e), dst(e)
-    c_ij[i] = ϵc*ξ_0[u]*conj(ξ_0[v])
+    #c_ij[i] = ϵc*ξ_0[u]*conj(ξ_0[v])
+    # sum contribution of all images memorized in ξ
+    c_ij[i] = ϵc/nv(g)*sum([ξ[k][u]*conj(ξ[k][v]) for k in 1:2])
+
+    #c_ij[i] = 1.0/3.0 + 1/3*im
     i += 1
 end 
 
@@ -96,9 +122,9 @@ nd! = network_dynamics(nd_vertex, nd_edge, g)
 # Simulation
 using Random
 rng = MersenneTwister(1234);
-#x0 = randn(rng,nv(g)) # random initial conditions
-x0 = ones(nv(g))
-tspan = (0.0, 1600.0)
+x0 = randn(rng,nv(g)) # random initial conditions
+#x0 = ones(nv(g))*10
+tspan = (0.0, 2500.0)
 ode_prob = ODEProblem(nd!, x0, tspan, parameters)
 sol = solve(ode_prob, Tsit5(), saveat=tspan[1]:0.1:tspan[2])
 #using Plots
@@ -109,7 +135,7 @@ using GLMakie
 fig = Figure()
 ax = GLMakie.Axis(fig[1, 1]; xlabel = "Time", ylabel = "u", title = "Kuramoto network")
 t= sol.t
-u = sol(sol.t)[1:N*M,:]
+u = sol(sol.t)[1:N*M,:] # get solution for plotting
 for i in 1:N
     lines!(ax, t, u[i,:], color = (:blue, 0.1))
 end
@@ -132,26 +158,26 @@ fig1
 GLMakie.save("kuramoto_network_diff_phase.png",fig1, px_per_unit = 4)
 using Plots
 Plots.plot(sol.t, u[u_idx[2],:], lw=0.2, label="Node 1")
-# Find the index of the value in t that is closest to t0 time
-M = 10
-N = 8
-for t0 in forcing_period:100:1600
-    f = Figure()
-    ax = GLMakie.Axis(f[1, 1], xlabel = "Node", ylabel = "u", title = "Kuramoto network at time $t0")
-    index_closest_to_t = findmin(abs.(t .- t0))[2]
-    state_vector_at_t = [mod2pi(u[i,index_closest_to_t]-u[1,index_closest_to_t]) for i in 1:N*M]
-    plot_rect_map(N, M, state_vector_at_t, ax)
-    # record the frames
-    GLMakie.save("./figs/kuramoto_network_diff_phase_t$(t0).png",f, px_per_unit = 4)
-end
+plot_phases(N, M, u, t, x0, forcing_period)
+
+# remake the problem with the new parameters
+vpars = zeros(ComplexF64, nv(g))
+#vpars = ξ[2]
+ξ_0 = copy(ξ[2])
+ξ_0[5*8-4] = .0999 + 0.0im
+parameters = (vpars, e_pars)
+u0 = real(ξ_0)
+optprobr = remake(ode_prob; u0=u0, p=parameters)
+forcing_period = 0.0
+sol2 = solve(optprobr, Tsit5(), saveat=tspan[1]:0.1:tspan[2])
+u = sol2(sol2.t)[1:N*M,:]
+plot_phases(N, M, abs.(u), sol2.t, zeros(nv(g)), forcing_period)
+
 # Learning the diffusion constant
 # using wrapper function to pass tuples as array of parameters
 function nd_wrapper!(dx, x, Σ,t)
-    nd!(dx, x,(nothing, Σ), t)
+    nd!(dx, x,Σ, t)
 end
-
-probflux = ODEProblem(nd_wrapper!, x0, tspan, saveat=tspan[1]:0.01:tspan[2])
-
 # The prediction function
 #
 # The function 'predict' integrates the system forward in time.
