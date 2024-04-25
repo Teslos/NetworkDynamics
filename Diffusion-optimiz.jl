@@ -34,7 +34,8 @@ nd! = network_dynamics(nd_diffusion_vertex, nd_diffusion_edge, g)
 
 # Simulation
 x0 = randn(N) # random initial conditions
-Σ = rand(ne(g))
+# Σ = rand(ne(g))
+Σ = ones(ne(g)) * 10.0
 tspan = (0.0, 4.0)
 ode_prob = ODEProblem(nd!, x0, tspan, (nothing,Σ))
 sol = solve(ode_prob, Tsit5())
@@ -99,7 +100,7 @@ optf = Optimization.OptimizationFunction((x,p)->loss(x),adtype)
 optprob = Optimization.OptimizationProblem(optf,pinit)
 predict(pinit)
 loss(pinit)
-res = Optimization.solve(optprob,OptimizationOptimisers.Adam(0.05), callback=cb, maxiters=20)
+res = Optimization.solve(optprob,OptimizationOptimisers.Adam(0.05), callback=cb, maxiters=200)
 res
 pinit
 optprobr = remake(ode_prob; Σ=res.u)
@@ -112,7 +113,7 @@ ax = GLMakie.Axis(fig2[1, 1]; xlabel = "Time", ylabel = "u", title = "Fitted net
 t= sol2.t
 u = sol2(sol2.t)[1:N,:]
 for i in 1:N
-    lines!(ax, t, u[i,:], color = (:blue, 0.1))
+    lines!(ax, t, u[i,:], color = (:red, 0.2))
 end
 fig2
 GLMakie.save("diffusion_network_optimization_fitted.png",fig2, px_per_unit = 4)

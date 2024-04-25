@@ -6,7 +6,7 @@ using Optimization # for the optimization problem
 using OptimizationOptimisers
 using GLMakie # for the optimization algorithm
 function create_graph(N::Int=8, M::Int=10)
-    g = Graphs.grid([8, 10])
+    g = Graphs.grid([N, M])
     edge_weights = ones(length(edges(g)))
     return g, edge_weights
 end
@@ -63,8 +63,7 @@ forcing_period = 400.0 # forcing period
 Base.@propagate_inbounds function kiedge!(e, v_s, v_d, p, t)
     # p is matrix of connections, same for ψ
     # e .= p*sin.(v_s .+ ψ .- v_d) # *σ
-    pr = real(p)
-    pi = imag(p)
+    pr, pi = p
     if t < forcing_period
         e .= 0.0 # no coupling in the forcing period
     else
@@ -76,8 +75,7 @@ end
 
 Base.@propagate_inbounds function ki_force_vertex!(dv, v, edges, p, t)
     # here we are forcing the first node to be active for period of time
-    pi = imag(p)
-    pr = real(p)
+    pr, pi = p
     if t < forcing_period
         dv .= ω_0 .+ ϵ * pr * sin.(ω_0 * t + pi)
         #dv .= ϵ * pr * sin.(ω_0 * t + pi)
@@ -111,7 +109,8 @@ end
 
 e_pars = c_ij
 #e_pars = [1.0 / 3.0 + 1/3*im for e in edges(g)]
-
+v_pars = [(real(v), imag(v)) for v in v_pars]
+e_pars = [(real(e), imag(e)) for e in e_pars]
 parameters = (v_pars, e_pars)
 
 # Constructing the network
@@ -164,7 +163,9 @@ plot_phases(N, M, u, t, x0, forcing_period)
 vpars = zeros(ComplexF64, nv(g))
 #vpars = ξ[2]
 ξ_0 = copy(ξ[2])
-ξ_0[5*8-4] = .0999 + 0.0im
+ξ_0[5*8-4] = 0.1 + 0.0im
+ξ_0 = normalize(ξ_0)
+vpars = [(real(v), imag(v)) for v in ξ_0]
 parameters = (vpars, e_pars)
 u0 = real(ξ_0)
 optprobr = remake(ode_prob; u0=u0, p=parameters)
@@ -176,13 +177,15 @@ plot_phases(N, M, abs.(u), sol2.t, zeros(nv(g)), forcing_period)
 # Learning the diffusion constant
 # using wrapper function to pass tuples as array of parameters
 function nd_wrapper!(dx, x, Σ,t)
-    nd!(dx, x,Σ, t)
+    nd!(dx, x, Σ, t)
 end
 # The prediction function
 #
 # The function 'predict' integrates the system forward in time.
 # Sensitivity analysis refers to computing the sensitivity of the
 # output with respect to the parameters.
+
+probflux = ODEProblem(nd!, x0, tspan, parameters; saveat=tspan[1]:0.01:tspan[2])
 
 function predict(p)
     Array(solve(probflux, Tsit5(), p=p, saveat=tspan[1]:0.01:tspan[2], sensealg=ForwardDiffSensitivity()))
@@ -204,19 +207,19 @@ cb = function (p, l, pred; doplot=false)
     end
     false
 end
-
-pinit = ComponentArray(Σ)
+pinit = ComponentArray(parameters)
 cb(pinit,loss(pinit)...;doplot=false)
 
 # We optimize for optimal local diffusion constants
 #res = DiffEqFlux.sciml_train(loss, Σ, ADAM(0.5); cb=cb, maxiters=20)
 #DiffEqFlux.trainmode!(loss, Σ, ADAM(0.5); cb=cb, maxiters=20)
 adtype = Optimization.AutoZygote()
-optf = Optimization.OptimizationFunction((x,p)->loss(x),adtype)
+ftest(x,p) = loss(p)
+optf = Optimization.OptimizationFunction(ftest,adtype)
 optprob = Optimization.OptimizationProblem(optf,pinit)
 predict(pinit)
 loss(pinit)
-res = Optimization.solve(optprob,OptimizationOptimisers.Adam(0.05), callback=cb, maxiters=20)
+res = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.05),maxiters=20)
 res
 pinit
 optprobr = remake(ode_prob; Σ=res.u)
