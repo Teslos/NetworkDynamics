@@ -52,8 +52,11 @@ x0 = randn(2N)*5
 using OrdinaryDiffEq
 
 tspan = (0.0, 200.0)
+datasize = 100
+tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
-sol = solve(prob, AutoTsit5(TRBDF2()))
+sol = solve(prob, AutoTsit5(TRBDF2()),saveat=tsteps)
+diff_data = Array(sol)
 
 # Plotting the solution
 #using Plots
@@ -62,10 +65,72 @@ sol = solve(prob, AutoTsit5(TRBDF2()))
 # using the new plotting package GLMakie
 using GLMakie
 fig = Figure()
-ax = Axis(fig[1, 1]; xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
+ax = GLMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
 t= sol.t
 u = sol(sol.t)[1:N,:]
 for i in 1:N
     lines!(ax, t, u[i,:], color = (:blue, 0.1))
 end
-fig
+#fig
+using Random
+using Lux
+using Optimization
+using OptimizationOptimJL
+using OptimizationOptimisers
+using ComponentArrays
+
+# Learning the coupling strength
+rng = Random.default_rng()
+ann_fhn = Chain(Dense(2, 20, tanh),
+    Dense(20, 1))
+p, st = Lux.setup(rng, ann_fhn)
+@inline function fhn_edge!(e, v_s, v_d, p, t)
+    in = [v_s[1], v_d[1]]
+    e[1] = Lux.apply(ann_fhn, in, p, st)[1][1]
+    nothing
+end
+
+ann_fhn_edge = StaticEdge(; f=fhn_edge!, dim=1, coupling=:directed)
+fhn_network! = network_dynamics(odeelevertex, ann_fhn_edge, g_directed)
+
+prob_neuralode = ODEProblem(fhn_network!, x0, tspan, p)
+
+function predict_neuralode(p)
+    prob = remake(prob_neuralode, p=p)
+    Array(solve(prob, Tsit5(), saveat=tsteps))
+end
+
+
+function loss_neuralode(p)
+    pred = predict_neuralode(p)
+    loss = sum(abs2, diff_data .- pred)
+    return loss, pred
+end
+
+callback = function (p, l, pred; doplot = false)
+    println("Current loss is: ", l)
+    # plot current prediction against data
+    if doplot
+        plt = scatter(tsteps, diff_data[1, :]; label = "data")
+        scatter!(plt, tsteps, pred[1, :]; label = "prediction")
+        display(plot(plt))
+    end
+    return false
+end
+pinit = ComponentArray(p)
+callback(pinit, loss_neuralode(pinit)...; doplot=true)
+
+# use Optimization.jl to solve the problem
+adtype = Optimization.AutoZygote()
+
+optf = Optimization.OptimizationFunction((x, p) -> loss_neuralode(x), adtype)
+optprob = Optimization.OptimizationProblem(optf, pinit)
+
+result_neuralode = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.05); callback = callback,
+    maxiters = 10)
+optprob2 = remake(optprob; u0 = result_neuralode.u)
+
+result_neuralode2 = Optimization.solve(optprob2, Optim.BFGS(; initial_stepnorm = 0.01);
+    callback, allow_f_increases = false)
+
+callback(result_neuralode2.u, loss_neuralode(result_neuralode2.u)...; doplot=true)
