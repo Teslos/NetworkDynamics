@@ -5,7 +5,24 @@ using Graphs
 using Optimization # for the optimization problem
 using OptimizationOptimisers
 using GLMakie # for the optimization algorithm
-function create_graph(N::Int=8, M::Int=10)
+using ScikitLearn
+@sk_import datasets: load_digits
+
+# load digits dataset
+digits = load_digits()
+# plot the first 10 digits
+pl_digits = reshape(digits["data"][1:10,:]',8,8,1,10)
+fig_digits = GLMakie.Figure(layout=(2,5))
+
+for i in 1:10
+    ax = GLMakie.Axis(fig_digits[i ÷ 6 + 1, i % 5 + (i % 5 == 0 ? 5 : 0)])
+    GLMakie.heatmap!(ax, pl_digits[:,:,1,i], colormap = :viridis)
+    hidespines!(ax)
+    hideydecorations!(ax)
+    hidexdecorations!(ax)
+end
+GLMakie.save("digits.png",fig_digits, px_per_unit = 4)
+function create_graph(N::Int=8, M::Int=8)
     g = Graphs.grid([N, M])
     edge_weights = ones(length(edges(g)))
     return g, edge_weights
@@ -36,7 +53,7 @@ end
 #N = 20 # number of nodes
 #k = 4 # number of edges per node
 #g = barabasi_albert(N, k)
-N=8; M=10
+N=8; M=8
 g, edge_weights = create_graph(N, M)
 
 # create the vector of vectors for the parameter values of the vertices
@@ -47,12 +64,14 @@ g, edge_weights = create_graph(N, M)
 ξ[2][8:8:end] .= 0.1+0*im
 ξ[2][end-7:end] .= 0.1+0*im
 #ξ_0[16:end] .= 0 # activating the end part
+ξ[1] .= reshape(pl_digits[:,:,1,1],(64,1))
+ξ[2] .= reshape(pl_digits[:,:,1,2],(64,1))
 f = GLMakie.Figure()
 ax = GLMakie.Axis(f[1, 1])
 f
 ξ[1] = normalize(ξ[1])
 ξ[2] = normalize(ξ[2])
-plot_rect_map(8,10, abs.(ξ[2]),ax)
+plot_rect_map(N,M, abs.(ξ[2]),ax)
 f
 ω_0 = 1.0 # intrinsic frequency
 ϵ = 100 # coupling strength
@@ -87,9 +106,10 @@ Base.@propagate_inbounds function ki_force_vertex!(dv, v, edges, p, t)
     nothing
 end
 # generating the random values for the parameter value ω_0 of the vertices close to 1
-#v_pars = [1.0 + 0.01*randn() for v in vertices(g)]
-ξ_0 = copy(ξ[1])
-ξ_0[1:6] .= 0.0
+ξ_0 = copy(ξ[2])
+ζ = 0.1
+ξ_0 = (1-ζ)*ξ[2]+ζ*ξ[1]
+#ξ_0[1:6] .= 0.0
 v_pars = ξ_0
 # coupling strength of edges are set to 1/3 @@note: coupling strength of the edges should be given by the
 # coupling matrix C_ij = s_ij * exp(ψ_ij*im) where s_ij is the strength of the connection and ψ_ij is the phase difference
@@ -219,7 +239,7 @@ optf = Optimization.OptimizationFunction(ftest,adtype)
 optprob = Optimization.OptimizationProblem(optf,pinit)
 predict(pinit)
 loss(pinit)
-res = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.05),maxiters=20)
+res = Optimization.solve(optprob, Optimisers.Adam(0.05),maxiters=20)
 res
 pinit
 optprobr = remake(ode_prob; Σ=res.u)

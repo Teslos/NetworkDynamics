@@ -1,4 +1,4 @@
-using ParserCombinator
+#using ParserCombinator
 using Graphs
 using GraphIO
 using GraphIO.GML # for GMLFormat
