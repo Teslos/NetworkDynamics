@@ -160,8 +160,8 @@ end
 callback = function (p, l, pred; doplot = false)
     # plot current prediction against data
     if doplot
-        plt = Plots.scatter(tsteps, xor_odedata[:,5]; label = "data")
-        Plots.scatter!(plt, tsteps, pred[:,5]; label = "prediction")
+        plt = Plots.scatter(tsteps, xor_odedata[5,:]; label = "data")
+        Plots.scatter!(plt, tsteps, pred[5,:]; label = "prediction")
         Plots.display(Plots.plot(plt))
     end
     return false
@@ -195,6 +195,22 @@ using JLD2
 @save "Wang-Kuramoto.jld2" result_neuralode2
 JLD2.@load "Wang-Kuramoto.jld2" result_neuralode_load
 
+# try to predict the XOR gate using the trained network
+x0 = randn(ComplexF64, N)
+x0[1] = +π/2*im
+x0[2] = -π/2*im
+
+probwk = ODEProblem(wk_network!, x0, tspan, result_neuralode2.u)
+solwk = solve(probwk, Tsit5(), saveat=tsteps)
+xor_pred = Array(solwk)
+fig = Figure()
+ax = GLMakie.Axis(fig[1, 1]; xlabel="Time", ylabel="u", title="XOR gate")
+t = solwk.t
+u = real.(solwk(solwk.t)[1:N,:])
+for i in 1:N
+    lines!(ax, t, u[i,:], linewidth=2)
+    text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
+end
 #=
 # Initial parameters of the network, that are optimized
 pinit = ComponentArray(parameters)
