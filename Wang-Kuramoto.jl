@@ -49,11 +49,10 @@ Base.Base.@propagate_inbounds function ki_force_vertex!(dv, v, edges, p, t)
 end
 
 # generate random values from standard distribution for parameters of the edges
-w_ij = randn(ComplexF64, length(edges(g)))
+w_ij = randn(Float64, length(edges(g)))
 # generate uniform values for the parameters of the vertices
 #ξ_0 = [ rand(-0.5:0.001:0.5) + im * rand(-π:0.001:π) for _ in 1:nv(g) ]
 ξ_0  = [0.5-π/2*im, 0.5+π/2*im, +π/2*im, 0.5, 0.5+π/2*im]
-e_params = [(real(e), imag(e)) for e in w_ij]
 v_params = [(real(v), imag(v)) for v in ξ_0]   # parameters for the vertices
 
 # Constructing the network
