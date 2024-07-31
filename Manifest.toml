@@ -2,7 +2,7 @@
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "a58f524dc3ebcbd40082c9c0ab0c91b9edf91432"
+project_hash = "d86dafa96518147d29ae32ccdb51713b4de66b73"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "aa4d425271a914d8c4af6ad9fccb6eb3aec662c7"
@@ -2171,12 +2171,6 @@ version = "1.2.0"
     Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
     Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
-
-[[deps.OptimizationOptimJL]]
-deps = ["Optim", "Optimization", "Reexport", "SparseArrays"]
-git-tree-sha1 = "43870d726f883a47d158beebb1fc3c9fab1da9d6"
-uuid = "36348300-93cb-4f02-beb5-3c3902f8871e"
-version = "0.3.2"
 
 [[deps.OptimizationOptimisers]]
 deps = ["Optimisers", "Optimization", "Printf", "ProgressLogging", "Reexport"]

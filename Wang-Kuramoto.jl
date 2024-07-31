@@ -27,7 +27,7 @@ g, edge_weights = create_graph(N)
 
 # Functions for edges and vertices
 Base.Base.@propagate_inbounds function kiedge!(e, v_s, v_d, p, t)
-    pr, pi = p
+    pr = p
     if t < forcing_period
         e .= -pr*sin.(v_s .- v_d) # no coupling in the forcing period 
         #e .= 0.0
@@ -56,7 +56,7 @@ w_ij = randn(Float64, length(edges(g)))
 v_params = [(real(v), imag(v)) for v in ξ_0]   # parameters for the vertices
 
 # Constructing the network
-parameters = (v_params, e_params)
+parameters = (v_params, w_ij)
 forcing_period = 400.0
 forcing_amplitude = 0.1
 forcing_phase = 0.0
