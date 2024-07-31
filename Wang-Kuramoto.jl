@@ -68,7 +68,7 @@ nd! = network_dynamics(nd_vertex, nd_edge, g)
 # Initial conditions
 rng = MersenneTwister(1234)
 ϕ0 = randn(rng, nv(g))
-tspan = (0.0, 1000.0)
+tspan = (0.0, 20.0)
 tsteps = range(tspan[1], tspan[2], length=1000)
 ode_prob = ODEProblem(nd!, ϕ0, tspan, parameters)
 sol = solve(ode_prob, Tsit5(), saveat=tsteps)
@@ -206,10 +206,11 @@ fig = Figure()
 ax = GLMakie.Axis(fig[1, 1]; xlabel="Time", ylabel="u", title="XOR gate")
 t = solwk.t
 u = real.(solwk(solwk.t)[1:N,:])
-for i in 1:N
-    lines!(ax, t, u[i,:], linewidth=2)
+for i in [1,2,5]
+    lines!(ax, t, u[i,:], linewidth=2, label="Oscillator $i")
     text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
 end
+axislegend(ax, position = :rt)
 #=
 # Initial parameters of the network, that are optimized
 pinit = ComponentArray(parameters)
