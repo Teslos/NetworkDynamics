@@ -185,15 +185,13 @@ result_neuralode2 = Optimization.solve(optprob2, Optim.BFGS(; initial_stepnorm =
         callback, allow_f_increases = false)
 
 callback(result_neuralode2.u, loss_neuralode(result_neuralode2.u)...; doplot=true)
-using Plots
-using PlotlyJS 
-plotlyjs()
+
 savefig("Wang-Kuramoto-opt.png")
 using JLD2
 
 # save the results
 @save "Wang-Kuramoto.jld2" result_neuralode2
-JLD2.@load "Wang-Kuramoto.jld2" result_neuralode_load
+JLD2.@load "Wang-Kuramoto.jld2" result_neuralode2
 
 # try to predict the XOR gate using the trained network
 x0 = randn(ComplexF64, N)
