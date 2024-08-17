@@ -2,7 +2,7 @@
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "9eb0021876077df6bb14483ff5d8ad88ab75ebda"
+project_hash = "b2e99145154f0bd3f0ed47ef7d25a564f3faea41"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "6778bcc27496dae5723ff37ee30af451db8b35fe"
@@ -597,6 +597,24 @@ deps = ["ADTypes", "Adapt", "ChainRulesCore", "ConcreteStructs", "DiffEqBase", "
 git-tree-sha1 = "582898a652a477720ec8766590725067f95b9bbc"
 uuid = "aae7a2af-3d4f-5e19-a356-7da93b79d9d0"
 version = "3.5.1"
+
+[[deps.DiffEqGPU]]
+deps = ["Adapt", "ChainRulesCore", "DiffEqBase", "Distributed", "DocStringExtensions", "ForwardDiff", "KernelAbstractions", "LinearAlgebra", "LinearSolve", "MuladdMacro", "Parameters", "Random", "RecursiveArrayTools", "Requires", "SciMLBase", "Setfield", "SimpleDiffEq", "StaticArrays", "TOML", "ZygoteRules"]
+git-tree-sha1 = "7a714b856fe00d6194774bc38e387375f06963fe"
+uuid = "071ae1c0-96b5-11e9-1965-c90190d839ea"
+version = "3.4.1"
+
+    [deps.DiffEqGPU.extensions]
+    AMDGPUExt = ["AMDGPU"]
+    CUDAExt = ["CUDA"]
+    MetalExt = ["Metal"]
+    oneAPIExt = ["oneAPI"]
+
+    [deps.DiffEqGPU.weakdeps]
+    AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
+    CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+    Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
+    oneAPI = "8f75cd03-7ff8-4ecb-9b8f-daf728133b1b"
 
 [[deps.DiffEqNoiseProcess]]
 deps = ["DiffEqBase", "Distributions", "GPUArraysCore", "LinearAlgebra", "Markdown", "Optim", "PoissonRandom", "QuadGK", "Random", "Random123", "RandomNumbers", "RecipesBase", "RecursiveArrayTools", "Requires", "ResettableStacks", "SciMLBase", "StaticArraysCore", "Statistics"]
@@ -2832,6 +2850,12 @@ version = "0.4.0"
 git-tree-sha1 = "874e8867b33a00e784c8a7e4b60afe9e037b74e1"
 uuid = "777ac1f9-54b0-4bf8-805c-2214025038e7"
 version = "1.1.0"
+
+[[deps.SimpleDiffEq]]
+deps = ["DiffEqBase", "LinearAlgebra", "MuladdMacro", "Parameters", "RecursiveArrayTools", "Reexport", "StaticArrays"]
+git-tree-sha1 = "afd610e15259e1c42e6b578d306a1c0cdf386533"
+uuid = "05bca326-078c-5bf0-a5bf-ce7c7982d7fd"
+version = "1.11.1"
 
 [[deps.SimpleNonlinearSolve]]
 deps = ["ADTypes", "ArrayInterface", "ConcreteStructs", "DiffEqBase", "DiffResults", "DifferentiationInterface", "FastClosures", "FiniteDiff", "ForwardDiff", "LinearAlgebra", "MaybeInplace", "PrecompileTools", "Reexport", "SciMLBase", "Setfield", "StaticArraysCore"]

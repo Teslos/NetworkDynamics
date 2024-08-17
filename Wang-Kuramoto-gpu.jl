@@ -1,5 +1,6 @@
 # solves classification problem for XOR gate using neural network with oscillators.
-using ComponentArrays, DiffEqFlux, NetworkDynamics, Lux, OrdinaryDiffEq, LinearAlgebra
+# trial version with GPU acceleration.
+using ComponentArrays, DiffEqGPU, CUDA, NetworkDynamics, Lux, OrdinaryDiffEq, LinearAlgebra
 using Graphs
 using Optimization # for optimization problem
 using OptimizationOptimisers 
@@ -9,6 +10,8 @@ using Random
 using Flux
 using Plots
 using IterTools
+using StaticArrays
+
 function plot_rect_map(N::Int, M::Int, data::Vector{Float64}, ax)
     #ax = GLMakie.Axis(f[1, 1])
     centers_x = 1:N
@@ -95,16 +98,16 @@ nd_vertex = ODEVertex(; f=ki_force_vertex!, dim=1, sym=[:v])
 nd_edge = StaticEdge(; f=kiedge!, dim=1)
 nd! = network_dynamics(nd_vertex, nd_edge, g)
 # all the cases of the XOR gate
-pars = [ξ_0, ξ_1, ξ_2, ξ_3]
-u0s = zeros(Float64, N, 4)
+pars = @SVector [ξ_0, ξ_1, ξ_2, ξ_3]
+u0s =  cu(zeros(Float32, N, 4))
 ode_prob = ODEProblem(nd!, ϕ0, tspan)
 # solve ensamble problem for all possible combinations of XOR gate
 function prob_func(prob, i, repeat)
     remake(prob; u0 = u0s[:,i], p = (pars[i], w_ij))
 end
 
-ens_prob = EnsembleProblem(ode_prob; prob_func=prob_func)
-ens_sol = solve(ens_prob, Tsit5(), EnsembleThreads(); trajectories=4, saveat=tsteps)
+ens_prob = EnsembleProblem(ode_prob; prob_func=prob_func, safetycopy = false)
+ens_sol = solve(ens_prob, Tsit5(), EnsembleGPUArray(CUDA.CUDABackend()); trajectories=4, saveat=tsteps)
 all_solutions = Array(ens_sol)
 
 fig = Figure()
@@ -136,7 +139,7 @@ rng = Random.default_rng()
 ann_wk = Lux.Chain(Lux.Dense(2, 20, tanh),
     Lux.Dense(20, 1))
 nn_pp, st = Lux.setup(rng, ann_wk)
-pp = ComponentArray(nn_pp)
+pp = ComponentArray(nn_pp) |> Lux.gpu
 
 
 @inline function wk_edge!(e, v_s, v_d, p, t)

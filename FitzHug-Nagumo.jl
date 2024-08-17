@@ -2,6 +2,8 @@ using Pkg
 Pkg.activate(".")
 using DelimitedFiles
 using Graphs
+using Interpolations
+using Distributions
 
 # adjust the load path for your system
 G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
@@ -17,6 +19,14 @@ g_weighted = SimpleWeightedDiGraph(G)
 
 # we promote the g_weighted as directed graph (weights of the edges are included in parameters)
 #g_directed = SimpleDiGraph(g_weighted)
+function create_complete_graph(N::Int=5)
+    # create all to all graph
+    g = Graphs.complete_graph(N)
+    edge_weights = ones(length(edges(g)))
+    g_weighted = SimpleDiGraph(g)
+    g_directed = SimpleDiGraph(g_weighted)
+    return g_directed, edge_weights
+end
 
 function create_graph(N::Int=8, M::Int=10)
     g = Graphs.grid([N, M])
@@ -26,25 +36,71 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
-g_directed, edge_weights = create_graph(4, 4)
+g_directed, edge_weights = create_complete_graph(5)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
 using NetworkDynamics
 
+# function to generate the spike train
+# rate: the rate of the pulse
+# duration: the duration of the signal
+# Tp: the duration of the pulse
+# example: 0.5 rate we will have 0.5 * duration pulses
+
+function pulse_generator(Tp, rate, duration)
+    # Calculate the number of pulses
+    num_pulses = Int(floor(duration * rate))
+    
+    # Initialize the current signal array
+    signal = zeros(Float64, duration)
+    
+    # Generate the pulses
+    for i in 1:num_pulses
+        start_index = (i - 1) * Int(floor(1 / rate)) + 1
+        end_index = min(start_index + Tp - 1, duration)
+        signal[start_index:end_index] .= 1
+    end
+    
+    return signal
+end
+j0 = pulse_generator(1, 0.2, 350)
+g0 = interpolate(j0, BSpline(Quadratic(Line(OnCell()))))
+R0 = 1
+
+g0v = [g0 for _ in 1:nv(g_directed)] # repeat the signal for all nodes
+e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
 Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
-    dv[1] = (v[1] - v[1]^3/3 - v[2])
-    dv[2] = (v[1] + a)*ϵ
+    # add external input j0
+    g = p
+
+    #println("g:",g)
+    # adding external input current
+    if t < 0.5
+        dv[1] = (v[1] + v[1]^3/3 - v[2])
+    else
+        dv[1] = (g[t] + v[1] - v[1]^3/3 - v[2])
+    end
+    # adding the external input voltage
+    if t < 0.5
+        dv[2] = (v[1] + a)*ϵ
+    else
+        dv[2] = R0 .* g[t] + (v[1] + a)*ϵ
+    end
+    
     for e in edges
         dv[1] += e[1]
+        dv[2] += e[2]
     end
     nothing
 end
 
 Base.Base.@propagate_inbounds function electrical_edge!(e, v_s, v_d, p, t)
-    e[1] = p*(v_s[1] - v_d[1]) # *σ
+    e[1] = p*(v_s[1] - v_d[1]) # *σ  - edge coupling for current
+    e[2] = p*(v_s[2] - v_d[2]) # *σ  - edge coupling for voltage
     nothing
 end
+
 
 odeelevertex = ODEVertex(; f=fhn_electrical_vertex!, dim=2, sym=[:u, :v])
 odeeleedge = StaticEdge(; f=electrical_edge!, dim=1, coupling=:directed)
@@ -53,24 +109,28 @@ fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 
 # Parameter handling
 N = nv(g_directed) # Number of nodes
-const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
+const ϵ = 0.5 # global variables that are accessed several times should be declared as constants
 const a = 0.5
 const σ = 0.5
 
+# different weights for edges, because the resitivity of the edges are always positive
+w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+#w_ij = σ/ϵ * ones(ne(g_directed))
 
 # Tuple of parameters for nodes and edges
-p = (nothing, σ/ϵ * ones(ne(g_directed)))
+p = (g0v, w_ij)
 #Initial conditions
 x0 = randn(2N)
 
 # Solving the ODE
 using OrdinaryDiffEq
 
-tspan = (0.0, 200.0)
-datasize = 100
+tspan = (0.0, 300.0)
+datasize = 400
 tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
-sol = solve(prob, AutoTsit5(TRBDF2()),saveat=tsteps)
+#sol = solve(prob, AutoTsit5(TRBDF2()),saveat=tsteps)
+sol = solve(prob, Tsit5())
 diff_data = Array(sol)
 
 # Plotting the solution
@@ -78,18 +138,21 @@ diff_data = Array(sol)
 #plot(sol, vars=idx_containing(fhn_network!, :u), legend=false, ylim = (-5,5), fmt=:png)
 
 # using the new plotting package CairoMakie
-#=
-using CairoMakie
+
+using GLMakie
 fig = Figure()
-ax = CairoMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
+ax = GLMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
 t= sol.t
 u = sol(sol.t)[1:N,:]
 for i in 1:N
-    lines!(ax, t, u[i,:], color = (:blue, 0.1))
+    lines!(ax, t, u[i,:], label="Oscillator $i")
+    #text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
 end
+axislegend(ax, position = :rt)
 fig
-=#
+
 using Plots
+
 using Random
 using Lux
 using Optimization
