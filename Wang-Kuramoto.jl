@@ -27,7 +27,7 @@ function plot_phases(N::Int, M::Int, u::Array{Float64,2}, t::Array{Float64,1}, x
         #plot_rect_map(N, M, state_vector_at_t, ax)
         lines!(ax, 1:N, state_vector_at_t, linewidth=2, label="Oscillator")
         # record the frames
-        GLMakie.save("./figs/xor_network_diff_phase_t$(t0).png",f, px_per_unit = 4)
+        GLMakie.save("./figs/xor_network_sol_phase_t$(t0).png",f, px_per_unit = 4)
     end
 end
 
@@ -107,18 +107,20 @@ ens_prob = EnsembleProblem(ode_prob; prob_func=prob_func)
 ens_sol = solve(ens_prob, Tsit5(), EnsembleThreads(); trajectories=4, saveat=tsteps)
 all_solutions = Array(ens_sol)
 
-fig = Figure()
-ax = GLMakie.Axis(fig[1, 1]; xlabel="Time", ylabel="u", title="XOR gate")
-sol = ens_sol[2]
-t = sol.t
-u = real.(sol(sol.t)[1:N,:])
-for i in 1:N
-    lines!(ax, t, u[i,:], linewidth=2, label="Oscillator $i")
-    text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
+fig = Figure(layout=(2,2))
+labels_xor = ["FF", "FT", "TF", "TT"]
+for (i,sol) in enumerate(ens_sol)
+    ax = GLMakie.Axis(fig[i ÷ 3 + 1, i % 2 + (i % 2 == 0 ? 2 : 0)]; xlabel="Time", ylabel="u", title="XOR gate $(labels_xor[i])")
+    t = sol.t
+    u = real.(sol(sol.t)[1:N,:])
+    for i in 1:N
+        lines!(ax, t, u[i,:], linewidth=2, label="Oscillator $i")
+        text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
+    end
+    axislegend(ax, position = :rt)
 end
-axislegend(ax, position = :rt)
 fig
-
+GLMakie.save("training_kuramoto_oscillators.png", fig)
 plot_phases(N, 1, u, sol.t, ϕ0, forcing_period, tspan)  # plot the phases of the network
 
 # in this case minibatch is all possible combinations of XOR gate
@@ -163,6 +165,9 @@ ann_vertex = ODEVertex(; f=wk_vertex!, dim=1, sym=[:v])
 ann_wk_edge = StaticEdge(; f=wk_edge!, dim=1, coupling=:directed)
 wk_network! = network_dynamics(ann_vertex, ann_wk_edge, g)
 probwk = ODEProblem(wk_network!, ϕ0, tspan, pp)
+function distance_func(x, y)
+    return sum(1 .- cos.(x .- y))
+end
 
 
 function distance_func(x, y)
@@ -192,12 +197,22 @@ function prob_func_neuralode(p,i,repeat)
     remake(probwk, p=ps, u0=u0s[:,i], saveat=tsteps)
 end
 
+#=
+@everywhere using Zygote
+@everywhere using SciMLBase
+@everywhere using ComponentArrays
+@everywhere using NetworkDynamics
+@everywhere using DiffEqFlux
+=#
 prob_ens = EnsembleProblem(probwk, prob_func = prob_func_neuralode)
-
+#addprocs(8)
+iter = 0
 # trying the Ensamble problem to solve XOR gate
 function loss_multiple_shooting(p; group_size=8)
+    global iter
+    iter = iter + 1
     # do it for all data points in the batch
-    #println("size of batch:", size(batch))
+    println("Iteration $iter finished:")
     loss = multiple_shoot(p, all_solutions, tsteps, prob_ens, EnsembleThreads(), loss_function, Tsit5(), group_size;
     continuity_term=300, trajectories = batch_size)
     #println("Current loss is: ", sum(loss))
@@ -226,9 +241,10 @@ optprob = Optimization.OptimizationProblem(optf, ComponentArray(nn_pp))
 result_neuralode = Optimization.solve(optprob, OptimizationOptimisers.AdamW(0.05); 
     callback = callback, maxiters=100)
 optprob2 = remake(optprob; u0 = result_neuralode.u)
-
-result_neuralode2 = Optimization.solve(optprob2, Optim.BFGS(; initial_stepnorm = 0.01);
-        callback, allow_f_increases = false)
+using OptimizationPolyalgorithms
+#result_neuralode2 = Optimization.solve(optprob2, Optim.BFGS(; initial_stepnorm = 0.01);
+#       callback, allow_f_increases = false)
+result_neuralode2 = Optimization.solve(optprob2, PolyOpt(); callback = callback)
 
 callback(result_neuralode2.u, loss_neuralode(result_neuralode2.u, train_loader_neural.data[1], train_loader_neural.data[2])...; doplot=true)
 using Plots
@@ -238,13 +254,13 @@ Plots.savefig("Wang-Kuramoto-opt.png")
 using JLD2
 
 # save the results
-@save "Wang-Kuramoto.jld2" result_neuralode2
-JLD2.@load "Wang-Kuramoto.jld2" result_neuralode_load
+@save "Wang-Kuramoto-result-neuralode.jld2" result_neuralode
+JLD2.@load "Wang-Kuramoto-result-neuralode.jld2" result_neuralode
 
 # try to predict the XOR gate using the trained network
 x0 = randn(Float64, N)
 x0[1] = π/2
-x0[2] = -π/2
+x0[2] = π/2
 
 probwk = ODEProblem(wk_network!, x0, tspan, result_neuralode.u)
 solwk = solve(probwk, Tsit5(), saveat=tsteps)
@@ -258,7 +274,10 @@ for i in [1,2,5]
     text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
 end
 axislegend(ax, position = :rt)
-GLMakie.save("Wang-Kuramoto-opt_true_false.png",fig, px_per_unit = 4)
+GLMakie.save("Wang-Kuramoto-opt_random_init.png",fig, px_per_unit = 4)
+
+# plot phase difference between all plot_phases
+plot_phases(N, 1, u, sol.t, ϕ0, forcing_period, tspan)
 #=
 # Initial parameters of the network, that are optimized
 pinit = ComponentArray(parameters)
