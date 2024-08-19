@@ -4,6 +4,8 @@ using DelimitedFiles
 using Graphs
 using Interpolations
 using Distributions
+include("spikerate.jl")
+
 
 # adjust the load path for your system
 G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
@@ -64,7 +66,9 @@ function pulse_generator(Tp, rate, duration)
     
     return signal
 end
-j0 = pulse_generator(1, 0.2, 350)
+x0 = ones(10)*0.4
+j0 = convert(Matrix{Float64}, spikerate.rate(x0,350) .|> Float32)
+#j0 = zeros(Float64, 350)
 g0 = interpolate(j0, BSpline(Quadratic(Line(OnCell()))))
 R0 = 1
 
