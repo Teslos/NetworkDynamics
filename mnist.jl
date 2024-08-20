@@ -3,7 +3,9 @@ using Flux.Data: DataLoader
 using Flux: onehotbatch, onecold, crossentropy, throttle
 using MLDatasets
 using MLDataUtils
+using ScikitLearn
 include("spikerate.jl")
+@sk_import datasets: load_digits
 
 function load_mnist_data(batch_size=64, train_split=0.8)
     # Load the MNIST dataset
@@ -40,12 +42,18 @@ train_loader, val_loader, test_loader = load_mnist_data(1)
 
 # get the first batch
 x, y = first(train_loader)
+
+# load data from SkitLearn
+digits = load_digits()
+pl_digits = reshape(digits["data"][1:10,:]',8,8,1,10)
+x = pl_digits[:, :, 1, 1] ./ 16
 # plot the first image
 using GLMakie
 fig = GLMakie.Figure()
 ax = GLMakie.Axis(fig[1, 1])
 GLMakie.heatmap!(ax, x[:, :, 1, 1], colormap=:viridis)
 fig
+GLMakie.save("mnist0.png", fig)
 # x is a 4D tensor of size (28, 28, 1, 64)
 println(size(x))
 # test x0
@@ -58,4 +66,4 @@ using GLMakie
 fig = GLMakie.Figure()
 ax = GLMakie.Axis(fig[1, 1], xlabel="Time", ylabel="Spike")
 GLMakie.heatmap!(ax, spike_train[1,:,:,1,1], colormap=:viridis)
-# savefig("spike_train.png")
+GLMakie.save("spike_train1.png",fig)

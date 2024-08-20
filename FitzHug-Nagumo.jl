@@ -4,9 +4,29 @@ using DelimitedFiles
 using Graphs
 using Interpolations
 using Distributions
+using FileIO
+using Images
+using ScikitLearn
+@sk_import datasets: load_digits
 include("spikerate.jl")
+include("mnist.jl")
 
+# read the data
+function load_image_as_array(file_path::String)
+    img_array = zeros(Float64, 8, 8, 2)
+    for i in 1:2
+        file = joinpath(file_path,"digit-$(i).jpg")
+        img = FileIO.load(file)
+        print(img)
+        img = Gray.(img)
+        img_array[:,:,i] = convert(Array{Float64,2}, img)
+    end
+    return img_array
+end
 
+image_digits = load_image_as_array("digits/")
+digits = load_digits()
+pl_digits = reshape(digits["data"][1:10,:]',8,8,1,10)
 # adjust the load path for your system
 G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
 
@@ -38,7 +58,7 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
-g_directed, edge_weights = create_complete_graph(5)
+g_directed, edge_weights = create_complete_graph(8*8)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
@@ -66,13 +86,16 @@ function pulse_generator(Tp, rate, duration)
     
     return signal
 end
-x0 = ones(10)*0.4
-j0 = convert(Matrix{Float64}, spikerate.rate(x0,350) .|> Float32)
-#j0 = zeros(Float64, 350)
-g0 = interpolate(j0, BSpline(Quadratic(Line(OnCell()))))
-R0 = 1
+x = pl_digits[:,:,1,1] ./ 16.0 
+spike_train = spikerate.rate(x, 350)
+# convert the spike train to a Float32 array and (time, color, 1)
+spike_train = reshape(Float32.(spike_train), 350, :, 1)
 
-g0v = [g0 for _ in 1:nv(g_directed)] # repeat the signal for all nodes
+#j0 = zeros(Float64, 350)
+g0 = interpolate(spike_train[:,1], BSpline(Quadratic(Line(OnCell()))))
+R0 = 0.01
+
+g0v = [interpolate(spike_train[:,i], BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal for all nodes
 e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
 Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
     # add external input j0
@@ -94,7 +117,7 @@ Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
     
     for e in edges
         dv[1] += e[1]
-        dv[2] += e[2]
+        #dv[2] += e[2]
     end
     nothing
 end
@@ -113,7 +136,7 @@ fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 
 # Parameter handling
 N = nv(g_directed) # Number of nodes
-const ϵ = 0.5 # global variables that are accessed several times should be declared as constants
+const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
 const a = 0.5
 const σ = 0.5
 
@@ -133,8 +156,8 @@ tspan = (0.0, 300.0)
 datasize = 400
 tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
-#sol = solve(prob, AutoTsit5(TRBDF2()),saveat=tsteps)
-sol = solve(prob, Tsit5())
+sol = solve(prob, Tsit5(), saveat=tsteps)
+#sol = solve(prob, Tsit5())
 diff_data = Array(sol)
 
 # Plotting the solution
@@ -152,9 +175,9 @@ for i in 1:N
     lines!(ax, t, u[i,:], label="Oscillator $i")
     #text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
 end
-axislegend(ax, position = :rt)
+#axislegend(ax, position = :rt)
 fig
-
+GLMakie.save("FitzHug-Nagumo.png", fig)
 using Plots
 
 using Random
@@ -167,17 +190,41 @@ using DiffEqFlux
 
 # Learning the coupling strength
 rng = Random.default_rng()
-ann_fhn = Chain(Dense(2, 20, tanh),
-    Dense(20, 1))
-p, st = Lux.setup(rng, ann_fhn)
+ann_fhn = Lux.Chain(Lux.Dense(2, 20, tanh),
+    Lux.Dense(20, 1))
+nn_pp, st = Lux.setup(rng, ann_fhn)
 @inline function fhn_edge!(e, v_s, v_d, p, t)
     in = [v_s[1], v_d[1]]
     e[1] = Lux.apply(ann_fhn, in, p, st)[1][1]
     nothing
 end
+@inline function fhn_vertex!(dv, v, edges, p, t)
+    # add external input j0
+    g = p
 
+    #println("g:",g)
+    # adding external input current
+    if t < 0.5
+        dv[1] = (v[1] + v[1]^3/3 - v[2])
+    else
+        dv[1] = (g[t] + v[1] - v[1]^3/3 - v[2])
+    end
+    # adding the external input voltage
+    if t < 0.5
+        dv[2] = (v[1] + a)*ϵ
+    else
+        dv[2] = R0 .* g[t] + (v[1] + a)*ϵ
+    end
+    
+    for e in edges
+        dv[1] += e[1]
+        #dv[2] += e[2]
+    end
+    nothing
+end
+ann_fhn_vertex = ODEVertex(; f=fhn_vertex!, dim=2, sym=[:u, :v])
 ann_fhn_edge = StaticEdge(; f=fhn_edge!, dim=1, coupling=:directed)
-fhn_network! = network_dynamics(odeelevertex, ann_fhn_edge, g_directed)
+fhn_network! = network_dynamics(ann_fhn_vertex, ann_fhn_edge, g_directed)
 
 prob_neuralode = ODEProblem(fhn_network!, x0, tspan, p)
 
@@ -197,13 +244,13 @@ callback = function (p, l, pred; doplot = false)
     println("Current loss is: ", l)
     # plot current prediction against data
     if doplot
-        plt = scatter(tsteps, diff_data[1, :]; label = "data")
-        scatter!(plt, tsteps, pred[1, :]; label = "prediction")
-        display(plot(plt))
+        plt = Plots.scatter(tsteps, diff_data[1, :]; label = "data")
+        Plots.scatter!(plt, tsteps, pred[1, :]; label = "prediction")
+        display(Plots.plot(plt))
     end
     return false
 end
-pinit = ComponentArray(p)
+pinit = ComponentArray(nn_pp)
 callback(pinit, loss_neuralode(pinit)...; doplot=true)
 
 # use Optimization.jl to solve the problem
