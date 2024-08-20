@@ -93,7 +93,7 @@ spike_train = reshape(Float32.(spike_train), 350, :, 1)
 
 #j0 = zeros(Float64, 350)
 g0 = interpolate(spike_train[:,1], BSpline(Quadratic(Line(OnCell()))))
-R0 = 0.01
+R0 = 0.1
 
 g0v = [interpolate(spike_train[:,i], BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal for all nodes
 e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
@@ -117,20 +117,25 @@ Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
     
     for e in edges
         dv[1] += e[1]
-        #dv[2] += e[2]
+        dv[2] += e[2]
     end
     nothing
 end
-
+# set the B rotational matrix
+ϕ = π/2 - 0.1
+B = [cos(ϕ) sin(ϕ); -sin(ϕ) cos(ϕ)]
 Base.Base.@propagate_inbounds function electrical_edge!(e, v_s, v_d, p, t)
-    e[1] = p*(v_s[1] - v_d[1]) # *σ  - edge coupling for current
-    e[2] = p*(v_s[2] - v_d[2]) # *σ  - edge coupling for voltage
+    #println("e size:",size(e))
+    #println("v_s size:",size(v_s))
+    #println("v_d size:",size(v_d))
+    e[1] = p*(B[1,1]*(v_s[1] - v_d[1]) + B[1,2]*(v_s[2] - v_d[2])) # *σ  - edge coupling for current
+    e[2] = p*(B[2,1]*(v_s[1] - v_d[1]) + B[2,2]*(v_s[2] - v_d[2])) # *σ  - edge coupling for voltage
     nothing
 end
 
 
 odeelevertex = ODEVertex(; f=fhn_electrical_vertex!, dim=2, sym=[:u, :v])
-odeeleedge = StaticEdge(; f=electrical_edge!, dim=1, coupling=:directed)
+odeeleedge = StaticEdge(; f=electrical_edge!, dim=2, coupling=:directed)
 
 fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 
@@ -188,32 +193,38 @@ using OptimizationOptimisers
 using ComponentArrays
 using DiffEqFlux
 
+# global variables (change this)
+pars = g0v
 # Learning the coupling strength
 rng = Random.default_rng()
 ann_fhn = Lux.Chain(Lux.Dense(2, 20, tanh),
     Lux.Dense(20, 1))
 nn_pp, st = Lux.setup(rng, ann_fhn)
+pp = ComponentArray(nn_pp)
+
 @inline function fhn_edge!(e, v_s, v_d, p, t)
     in = [v_s[1], v_d[1]]
     e[1] = Lux.apply(ann_fhn, in, p, st)[1][1]
     nothing
 end
+
 @inline function fhn_vertex!(dv, v, edges, p, t)
     # add external input j0
-    g = p
+    #g = p
 
-    #println("g:",g)
+    #println("g size:",size(g))
+    #println("g max:",maximum(g), "g min:",minimum(g))
     # adding external input current
     if t < 0.5
         dv[1] = (v[1] + v[1]^3/3 - v[2])
     else
-        dv[1] = (g[t] + v[1] - v[1]^3/3 - v[2])
+        dv[1] = (v[1] - v[1]^3/3 - v[2])
     end
     # adding the external input voltage
     if t < 0.5
         dv[2] = (v[1] + a)*ϵ
     else
-        dv[2] = R0 .* g[t] + (v[1] + a)*ϵ
+        dv[2] = (v[1] + a)*ϵ
     end
     
     for e in edges
@@ -226,7 +237,7 @@ ann_fhn_vertex = ODEVertex(; f=fhn_vertex!, dim=2, sym=[:u, :v])
 ann_fhn_edge = StaticEdge(; f=fhn_edge!, dim=1, coupling=:directed)
 fhn_network! = network_dynamics(ann_fhn_vertex, ann_fhn_edge, g_directed)
 
-prob_neuralode = ODEProblem(fhn_network!, x0, tspan, p)
+prob_neuralode = ODEProblem(fhn_network!, x0, tspan, (pars, pp))
 
 function predict_neuralode(p)
     prob = remake(prob_neuralode, p=p)
