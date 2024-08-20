@@ -1,3 +1,5 @@
 *.gml
 *.png
+*.psd
+*.tif
 .vscode
