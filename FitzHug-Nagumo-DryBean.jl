@@ -7,31 +7,31 @@ using Distributions
 using FileIO
 using Images
 using ScikitLearn
+using OneHotArrays
+using Flux: shuffle
+
 @sk_import datasets: load_digits
 include("spikerate.jl")
-include("mnist.jl")
+include("drybean.jl")
 
-# read the data
-function load_image_as_array(file_path::String)
-    img_array = zeros(Float64, 8, 8, 2)
-    for i in 1:2
-        file = joinpath(file_path,"digit-$(i).jpg")
-        img = FileIO.load(file)
-        print(img)
-        img = Gray.(img)
-        img_array[:,:,i] = convert(Array{Float64,2}, img)
-    end
-    return img_array
-end
-
-image_digits = load_image_as_array("digits/")
-digits = load_digits()
-pl_digits = reshape(digits["data"][1:10,:]',8,8,1,10)
 # adjust the load path for your system
 G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
 
 using SimpleWeightedGraphs, Graphs
 
+# read the dry bean dataset
+db = drybean.read_drybean()
+x = Matrix(permutedims(db[shuffle(1:end), :]))
+function normalize_rows(x::AbstractMatrix)
+    x = x ./ maximum(x, dims=2)
+    return x
+end
+# target vector
+y = x[17,:]
+x = normalize_rows(x[1:16,:])
+classes = unique(y)
+onehot_y = onehotbatch(y, classes)
+transpose(onehot_y)
 # first we need to create a weighted, directed graph
 g_weighted = SimpleWeightedDiGraph(G)
 
@@ -86,17 +86,18 @@ function pulse_generator(Tp, rate, duration)
     
     return signal
 end
-x = pl_digits[:,:,1,1] ./ 16.0 
-spike_train = spikerate.rate(x, 350)
+
+spike_train = spikerate.rate(x[:,10], 350)
 # convert the spike train to a Float32 array and (time, color, 1)
-spike_train = reshape(Float32.(spike_train), 350, :, 1)
+#spike_train = reshape(Float32.(spike_train), 350, :, 1)
+spike_train = Float32.(spike_train) 
 
 #j0 = zeros(Float64, 350)
-g0 = interpolate(spike_train[:,1], BSpline(Quadratic(Line(OnCell()))))
+g0 = interpolate(zeros(Float64, size(spike_train,1)), BSpline(Quadratic(Line(OnCell()))))
 
-R0 = 0.2
+R0 = 0.19
 
-g0v = [interpolate(spike_train[:,i], BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal for all nodes
+g0v = [interpolate(i <= 16 ? spike_train[:,i] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal for all nodes
 e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
 Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
     # add external input j0
@@ -125,7 +126,7 @@ Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
 end
 # set the B rotational matrix with an angle ϕ,
 # the default value is ϕ = π/2 - 0.1, but the value causes the numerics to be unstable
-ϕ = π/2 - 0.27
+ϕ = π/2 - 0.1
 B = [cos(ϕ) sin(ϕ); -sin(ϕ) cos(ϕ)]
 Base.Base.@propagate_inbounds function electrical_edge!(e, v_s, v_d, p, t)
     #println("p type:",typeof(p))
@@ -160,8 +161,8 @@ x0 = randn(2N)
 # Solving the ODE
 using OrdinaryDiffEq
 
-tspan = (0.0, 300.0)
-datasize = 400
+tspan = (0.0, Float64(size(spike_train,1)))
+datasize = 1600
 tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
 sol = solve(prob, Tsit5(), saveat=tsteps)
@@ -178,117 +179,117 @@ using GLMakie
 fig = Figure()
 ax = GLMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
 t= sol.t
-u = sol(sol.t)[1:N,:]
-for i in 1:N
+u = sol(sol.t)[2:2:128,:]
+# use only the u values
+diff_data = u
+for i in 1:64
     lines!(ax, t, u[i,:], label="Oscillator $i")
     #text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
 end
 #axislegend(ax, position = :rt)
 fig
-GLMakie.save("FitzHug-Nagumo_R0_0_02.png", fig)
+GLMakie.save("FitzHug-Nagumo_CALI_10.png", fig)
 using Plots
 
 using Random
 using Lux
+using Flux
 using Optimization
 using OptimizationOptimJL
 using OptimizationOptimisers
 using ComponentArrays
 using DiffEqFlux
-
-# global variables (change this)
-pars = g0v
-# Learning the coupling strength
+using Zygote
+using OneHotArrays
+# network training for the FitzHugh-Nagumo RC last two layers
 rng = Random.default_rng()
-nsize = 64
-ann_fhn = Lux.Chain(Lux.Dense(4, nsize, tanh),
-    Lux.Dense(nsize, 2))
-nn_pp, st = Lux.setup(rng, ann_fhn)
-pp = ComponentArray(nn_pp)
 
-@inline function fhn_edge!(e, v_s, v_d, p, t)
-    #println("p size:",size(p))
-    in = [v_s[1], v_d[1], v_s[2], v_d[2]]
+function load_data(x, y, train_ratio = 0.8)
+    num_samples = size(x, 2)
+    num_train_samples = Int(floor(num_samples * train_ratio))
+
+    shuffled_indices = shuffle(rng, 1:num_samples)
+
+    # shuffle the data
+    train_indices = shuffled_indices[1:num_train_samples]
+    test_indices = shuffled_indices[num_train_samples+1:end]
+
+    # split the data
+    train_x = x[:,train_indices]
+    train_y = y[train_indices]
+    test_x = x[:,test_indices]
+    test_y = y[test_indices]
+    return (train_x, train_y), (test_x, test_y)
+end
+
+function create_model()
+    return Lux.Chain(
+        Lux.Dense(64, 512, tanh),
+        Lux.Dense(512, 7), softmax
+    )
+end
+
+function partition(data, batch_size)
+    x, y = data
+    return ((x[:, i:min(i+batch_size-1, end)], y[i:min(i+batch_size-1, end)]) for i in 1:batch_size:size(x, 2))
+end
+
+# train the network with the output of the FitzHugh-Nagumo network
+# the output of the FitzHugh-Nagumo network is the input to the RC network
+# loss function is the cross entropy loss
+function loss(x, y, model, ps, st)
+    #print("x size:",size(x),"y size:",size(y))
+    y_pred, st = model(x, ps, st)
+    #println("y_pred:", y_pred)
     
-    result = Lux.apply(ann_fhn, in, p, st)[1]
-    #print("result size:",size(result))
-    e[1] = result[1]
-    e[2] = result[2]
+    lossv = -mean(sum(y .* log.(softmax(y_pred)), dims=1))
+    println("lossv:",lossv)
+    return lossv, st
+end
+
+function accuracy(model, ps, st, x, y)
+    total_correct, total = 0, 0
+    st = Lux.testmode(st)
+    for (x,y) in partition((x,y), 7)
+        target_class = onecold(y)
+        predicted_class = onecold(Array(first(model(x, ps, st))))
+        total_correct += sum(target_class .== predicted_class)
+        total += length(y)
+    end
+    return total_correct / total
+end
+
+loss_function(x, y, model, ps, states) = loss(x, onehotbatch(y, classes), model, ps, states)
+function train_model(model, train_data, test_data; epochs=10, batch_size=2560, learning_rate=0.001)
+    ps, st = Lux.setup(rng, model)
     
-    nothing
-end
+    opt = Optimisers.Adam(learning_rate)
+    st_opt = Optimisers.setup(opt, ps)
 
-@inline function fhn_vertex!(dv, v, edges, p, t)
-    # add external input j0
-    g = p
+    # train loop
+    for epoch in 1:epochs
+        for (x, y) in partition(train_data, batch_size)
+            #println("x:",size(x),"y:",size(y))
+            (loss_value, st), back = pullback(loss_function, x, y, model, ps, st)
+        
+            grads = back((one(loss_value),nothing))[4]
+            st_opt, ps = Optimisers.update(st_opt, ps, grads)
+        end
+        println("train_labels:", size(train_data[2]))
 
-    #println("g size:",size(g))
-    #println("g max:",maximum(g), "g min:",minimum(g))
-    # adding external input current
-    if t < 0.5
-        dv[1] = (v[1] + v[1]^3/3 - v[2])
-    else
-        dv[1] = (g[t] + v[1] - v[1]^3/3 - v[2])
+        train_acc = accuracy(model, ps, st, train_data...)
+
+        test_acc = accuracy(model, ps, st, test_data...)
+        println("Epoch $epoch, Train Accuracy: $train_acc, Test Accuracy: $test_acc")
     end
-    # adding the external input voltage
-    if t < 0.5
-        dv[2] = (v[1] + a)*ϵ
-    else
-        dv[2] = R0 .* g[t] + (v[1] + a)*ϵ
-    end
-    
-    for e in edges
-        dv[1] += e[1]
-        dv[2] += e[2]
-    end
-    nothing
-end
-ann_fhn_vertex = ODEVertex(; f=fhn_vertex!, dim=2, sym=[:u, :v])
-ann_fhn_edge = StaticEdge(; f=fhn_edge!, dim=2, coupling=:directed)
-fhn_network! = network_dynamics(ann_fhn_vertex, ann_fhn_edge, g_directed)
-pall = (pars, pp)
-prob_neuralode = ODEProblem(fhn_network!, x0, tspan, pp)
-u0s = randn(2N)
-function predict_neuralode(p)
-    ps = (pars, pp)
-    prob = remake(prob_neuralode, p=pp,u0 = u0s, saveat=tsteps, sensealg = ForwardDiffSensitivity())
-    #println("pars size:",size(pars))
-    #println("pp size:",size(pp))
-    Array(solve(prob, Tsit5()))
 end
 
+# Load data
+(train_x, train_y), (test_x, test_y) = load_data(diff_data,y)
+# Create model 
+model = create_model()
+nn_rc, st_rc = Lux.setup(rng, model)
 
-function loss_neuralode(p)
-    pred = predict_neuralode(p)
-    loss = sum(abs2, diff_data .- pred)
-    return loss, pred
-end
+# train the model
+train_model(model,(train_x, train_y), (test_x, test_y); epochs=1000)
 
-callback = function (p, l, pred; doplot = false)
-    println("Current loss is: ", l)
-    # plot current prediction against data
-    if doplot
-        plt = Plots.scatter(tsteps, diff_data[1, :]; label = "data")
-        Plots.scatter!(plt, tsteps, pred[1, :]; label = "prediction")
-        display(Plots.plot(plt))
-    end
-    return false
-end
-pinit = ComponentArray(nn_pp)
-callback(pp, loss_neuralode(pp)...; doplot=true)
-
-# use Optimization.jl to solve the problem
-adtype = Optimization.AutoZygote()
-
-optf = Optimization.OptimizationFunction((x, p) -> loss_neuralode(x), adtype)
-optprob = Optimization.OptimizationProblem(optf, pinit)
-
-result_neuralode = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.05); callback = callback,
-    maxiters = 10)
-optprob2 = remake(optprob; u0 = result_neuralode.u)
-
-result_neuralode2 = Optimization.solve(optprob2, Optim.BFGS(; initial_stepnorm = 0.01);
-    callback, allow_f_increases = false)
-
-callback(result_neuralode2.u, loss_neuralode(result_neuralode2.u)...; doplot=true)
-savefig("FitzHug-Nagumo-opt.png")

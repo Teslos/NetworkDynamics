@@ -4,7 +4,7 @@ export rate, rate_conv
 
 function rate(
     data::AbstractArray,
-    num_steps::Int64,
+    num_steps::Int64;
     gain::Float64=1.0,
     offset::Float64=0.0,
     first_spike_time::Int=0,
