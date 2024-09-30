@@ -9,6 +9,10 @@ using Images
 using ScikitLearn
 using OneHotArrays
 using Flux: shuffle
+using Interpolations
+using Dierckx
+using Random
+
 
 @sk_import datasets: load_digits
 include("spikerate.jl")
@@ -27,11 +31,10 @@ function normalize_rows(x::AbstractMatrix)
     return x
 end
 # target vector
-y = x[17,:]
+targets = x[17,:]
 x = normalize_rows(x[1:16,:])
-classes = unique(y)
-onehot_y = onehotbatch(y, classes)
-transpose(onehot_y)
+
+
 # first we need to create a weighted, directed graph
 g_weighted = SimpleWeightedDiGraph(G)
 
@@ -87,18 +90,43 @@ function pulse_generator(Tp, rate, duration)
     return signal
 end
 
-spike_train = spikerate.rate(x[:,10], 350)
+spike_train = spikerate.rate(x[:,1:64], 16)
+spike_train_test = spikerate.rate(x[:,65:128], 16)
 # convert the spike train to a Float32 array and (time, color, 1)
 #spike_train = reshape(Float32.(spike_train), 350, :, 1)
-spike_train = Float32.(spike_train) 
+spike_train = Float32.(reshape(spike_train, :,64)) 
+spike_train_test = Float32.(reshape(spike_train_test, :,64))
+#spike_train = Float32.(spike_train)
+tspike = collect(1:size(spike_train,1))
 
 #j0 = zeros(Float64, 350)
-g0 = interpolate(zeros(Float64, size(spike_train,1)), BSpline(Quadratic(Line(OnCell()))))
+g0 =  zeros(Float64, size(spike_train,1))
 
-R0 = 0.19
-
-g0v = [interpolate(i <= 16 ? spike_train[:,i] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal for all nodes
+R0 = 0.5
+gs = [Spline1D(tspike, spike_train[:,i], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes
+gst = [Spline1D(tspike, spike_train_test[:,i], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes
+g0v = [interpolate(i <= 16 ? spike_train[:,i] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal only for some nodes
 e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
+
+@inline Base.@propagate_inbounds function fhn_electrical_vertex_simple!(dv, v, edges, p, t)
+    g = p
+    e_s, e_d = edges
+    dv[1] = g(t) + v[1] - v[1]^3 / 3 - v[2]
+    dv[2] = (g(t) .* R0 + v[1] - a) * ϵ
+    for e in e_s
+        dv[1] -= e[1]
+    end
+    for e in e_d
+        dv[1] += e[1]
+    end
+    nothing
+end
+
+@inline Base.@propagate_inbounds function electrical_edge_simple!(e, v_s, v_d, p, t)
+    e[1] =  p * (v_s[1] - v_d[1]) # * σ
+    nothing
+end
+
 Base.@propagate_inbounds function fhn_electrical_vertex!(dv, v, edges, p, t)
     # add external input j0
     g = p
@@ -138,8 +166,8 @@ Base.Base.@propagate_inbounds function electrical_edge!(e, v_s, v_d, p, t)
 end
 
 
-odeelevertex = ODEVertex(; f=fhn_electrical_vertex!, dim=2, sym=[:u, :v])
-odeeleedge = StaticEdge(; f=electrical_edge!, dim=2, coupling=:directed)
+odeelevertex = ODEVertex(; f=fhn_electrical_vertex_simple!, dim=2, sym=[:u, :v])
+odeeleedge = StaticEdge(; f=electrical_edge_simple!, dim=2, coupling=:directed)
 
 fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 
@@ -147,39 +175,39 @@ fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 N = nv(g_directed) # Number of nodes in the network
 const ϵ = 0.05 # time scale separation parameter, default value is 0.05
 const a = 0.5 # threshold parameter abs(a) < 1 is self-sustained limit cycle, abs(a) = 1 is a Hopf bifurcation
-const σ = 0.5
+const σ = 0.006
 
 # different weights for edges, because the resitivity of the edges are always positive
 w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
-#w_ij = σ/ϵ * ones(ne(g_directed))
 
 # Tuple of parameters for nodes and edges
-p = (g0v, w_ij)
+p = (gs,σ * w_ij)
 #Initial conditions
-x0 = randn(2N)
+rng = Random.default_rng()
+x0 = rand(Float64, 2*N)
 
-# Solving the ODE
+# produce the training data
 using OrdinaryDiffEq
 
 tspan = (0.0, Float64(size(spike_train,1)))
-datasize = 1600
+datasize = 256
 tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
 sol = solve(prob, Tsit5(), saveat=tsteps)
-#sol = solve(prob, Tsit5())
 diff_data = Array(sol)
 
-# Plotting the solution
-#using Plots
-#plot(sol, vars=idx_containing(fhn_network!, :u), legend=false, ylim = (-5,5), fmt=:png)
-
+# produce the test data
+# test parameters
+p = (gst,σ * w_ij)
+probt = remake(prob, p=p)
+solt = solve(probt, Tsit5(), saveat=tsteps)
+diff_datat = solt(solt.t)[1:2:128,:]
 # using the new plotting package CairoMakie
-
 using GLMakie
 fig = Figure()
 ax = GLMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
 t= sol.t
-u = sol(sol.t)[2:2:128,:]
+u = sol(sol.t)[1:2:128,:] # (N, T) nodes, time
 # use only the u values
 diff_data = u
 for i in 1:64
@@ -204,34 +232,42 @@ using OneHotArrays
 # network training for the FitzHugh-Nagumo RC last two layers
 rng = Random.default_rng()
 
-function load_data(x, y, train_ratio = 0.8)
-    num_samples = size(x, 2)
-    num_train_samples = Int(floor(num_samples * train_ratio))
+function load_data(x, y; shuffling=true, train_ratio = 1.0)
+    num_samples = size(x, 1)
+    classes = unique(y)
 
-    shuffled_indices = shuffle(rng, 1:num_samples)
+    num_train_samples = Int(floor(num_samples * train_ratio))
+    if shuffling
+        shuffled_indices = shuffle(rng, 1:num_samples)
+    else
+        shuffled_indices = 1:num_samples
+    end
 
     # shuffle the data
     train_indices = shuffled_indices[1:num_train_samples]
     test_indices = shuffled_indices[num_train_samples+1:end]
+    println("train_indices:",train_indices)
 
     # split the data
-    train_x = x[:,train_indices]
+    train_x = x[train_indices,:]
     train_y = y[train_indices]
-    test_x = x[:,test_indices]
+    train_y = onehotbatch(train_y, classes)
+    test_x = x[test_indices,:]
     test_y = y[test_indices]
+    test_y = onehotbatch(test_y, classes)
     return (train_x, train_y), (test_x, test_y)
 end
 
 function create_model()
     return Lux.Chain(
         Lux.Dense(64, 512, tanh),
-        Lux.Dense(512, 7), softmax
+        Lux.Dense(512, 7)
     )
 end
 
 function partition(data, batch_size)
     x, y = data
-    return ((x[:, i:min(i+batch_size-1, end)], y[i:min(i+batch_size-1, end)]) for i in 1:batch_size:size(x, 2))
+    return ((x[:, i:min(i+batch_size-1, end)], y[:, i:min(i+batch_size-1, end)]) for i in 1:batch_size:size(x, 2))
 end
 
 # train the network with the output of the FitzHugh-Nagumo network
@@ -240,7 +276,7 @@ end
 function loss(x, y, model, ps, st)
     #print("x size:",size(x),"y size:",size(y))
     y_pred, st = model(x, ps, st)
-    #println("y_pred:", y_pred)
+    #println("y_pred size:", size(y_pred))
     
     lossv = -mean(sum(y .* log.(softmax(y_pred)), dims=1))
     println("lossv:",lossv)
@@ -259,8 +295,8 @@ function accuracy(model, ps, st, x, y)
     return total_correct / total
 end
 
-loss_function(x, y, model, ps, states) = loss(x, onehotbatch(y, classes), model, ps, states)
-function train_model(model, train_data, test_data; epochs=10, batch_size=2560, learning_rate=0.001)
+loss_function(x, y, model, ps, states) = loss(x, y, model, ps, states)
+function train_model(model, train_data, test_data; epochs=10, batch_size=256, learning_rate=0.001)
     ps, st = Lux.setup(rng, model)
     
     opt = Optimisers.Adam(learning_rate)
@@ -283,9 +319,61 @@ function train_model(model, train_data, test_data; epochs=10, batch_size=2560, l
         println("Epoch $epoch, Train Accuracy: $train_acc, Test Accuracy: $test_acc")
     end
 end
+# flux model
+using FluxOptTools
+#using Optim
+using Flux, CUDA
+# initialize CUDA
+Flux.gpu_backend!("CUDA")
+spike_train = spike_train |> Flux.gpu
+function loss(x, y)
+    y_pred = model_flux(x)
+    lossv = sum(abs2, y .- y_pred)
+    #println("lossv:",lossv)
+    return lossv
+end
 
+function loss_ce(x, y)
+    y_pred = model_flux(x)
+    #print("y_pred:",size(y_pred))
+    lossv = Flux.Losses.crossentropy(y_pred, y)
+    #println("lossv:",lossv)
+    return lossv
+end
+
+dim_system = 7
+model_flux = Flux.Chain(
+    Flux.Dense(256, 512, swish),
+    Flux.Dense(512, 256, swish),
+    Flux.Dense(256, dim_system),
+    Flux.softmax
+) |> Flux.gpu
+ps = Flux.params(model_flux)
+ps = ps |> Flux.gpu
+(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=false, train_ratio = 0.5) |> Flux.gpu
+#test_x, test_y), (_, _) = load_data(diff_datat,targets[65:128];shuffling=false) |> Flux.gpu
+
+# BFGS optimizer for the model
+#lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
+#res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
+# Standard ADAM optimizer for the model
+opt = Flux.ADAM(0.001)
+epochs = 5000
+for epoch in 1:epochs
+    Flux.train!(loss_ce, ps, [(train_x', train_y)], opt)
+    println("Epoch $epoch, Loss: $(loss(train_x', train_y))")
+end
+
+# test accuracy
+function accuracy(model, x, y)
+    y_pred = model(x)
+    pred_class = sum(onecold(y) .== onecold(y_pred))
+    acc = pred_class / size(y, 2)
+    return acc
+end
+spike_train_test = spike_train_test |> Flux.gpu
+accuracy(model_flux, test_x', test_y)
 # Load data
-(train_x, train_y), (test_x, test_y) = load_data(diff_data,y)
 # Create model 
 model = create_model()
 nn_rc, st_rc = Lux.setup(rng, model)
