@@ -1,4 +1,6 @@
 *.gml
 *.png
+*.psd
+*.tif
 .vscode
 *.jld2

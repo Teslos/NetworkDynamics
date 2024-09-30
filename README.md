@@ -24,3 +24,15 @@ Using the larger deviation from the average frequency produces this result:
 This are solution to the network graph of the brain system:
 
 ![Duffing oscillator brain](./figs/duffing_brain_graph.png)
+
+# Learning using reservoir computing
+The learning procedure for the cases of Drybean classification uses the reservoir compute by network of FHN oscillators.
+The network state is set between equilibrium and chaotic state. We expect highest computing ability in this particular state. 
+Additional things to be done and tested are:
+- Training efficiency with different network topologies
+- Parallel solution of the reservoir using the GPU and maybe ModelingToolkit library instead of NetworkDynamics
+- Interactive demo to set up the active nodes in the graph (using JavaScript)
+
+# References
+
+Chaos 31, 013108 (2021)
