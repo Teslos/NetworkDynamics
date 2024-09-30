@@ -1,3 +1,4 @@
 *.gml
 *.png
 .vscode
+.jld2
