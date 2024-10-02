@@ -13,7 +13,7 @@ using Interpolations
 using Dierckx
 using Random
 
-
+rng = Xoshiro(1234)
 @sk_import datasets: load_digits
 include("spikerate.jl")
 include("drybean.jl")
@@ -25,7 +25,7 @@ using SimpleWeightedGraphs, Graphs
 
 # read the dry bean dataset
 db = drybean.read_drybean()
-x = Matrix(permutedims(db[shuffle(1:end), :]))
+x = Matrix(permutedims(db[shuffle(rng, 1:end), :]))
 function normalize_rows(x::AbstractMatrix)
     x = x ./ maximum(x, dims=2)
     return x
@@ -61,7 +61,7 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
-g_directed, edge_weights = create_complete_graph(8*8)
+g_directed, edge_weights = create_complete_graph(16*8)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
@@ -90,12 +90,12 @@ function pulse_generator(Tp, rate, duration)
     return signal
 end
 
-spike_train = spikerate.rate(x[:,1:64], 16)
-spike_train_test = spikerate.rate(x[:,65:128], 16)
+spike_train = spikerate.rate(x[:,1:128], 16)
+spike_train_test = spikerate.rate(x[:,129:256], 16)
 # convert the spike train to a Float32 array and (time, color, 1)
 #spike_train = reshape(Float32.(spike_train), 350, :, 1)
-spike_train = Float32.(reshape(spike_train, :,64)) 
-spike_train_test = Float32.(reshape(spike_train_test, :,64))
+spike_train = Float32.(reshape(spike_train, :,128)) 
+spike_train_test = Float32.(reshape(spike_train_test, :,128))
 #spike_train = Float32.(spike_train)
 tspike = collect(1:size(spike_train,1))
 
@@ -183,7 +183,7 @@ w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
 # Tuple of parameters for nodes and edges
 p = (gs,σ * w_ij)
 #Initial conditions
-rng = Random.default_rng()
+#rng = Random.default_rng()
 x0 = rand(Float64, 2*N)
 
 # produce the training data
@@ -201,13 +201,13 @@ diff_data = Array(sol)
 p = (gst,σ * w_ij)
 probt = remake(prob, p=p)
 solt = solve(probt, Tsit5(), saveat=tsteps)
-diff_datat = solt(solt.t)[1:2:128,:]
+diff_datat = solt(solt.t)[1:2:256,:]
 # using the new plotting package CairoMakie
 using GLMakie
 fig = Figure()
 ax = GLMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
 t= sol.t
-u = sol(sol.t)[1:2:128,:] # (N, T) nodes, time
+u = sol(sol.t)[1:2:256,:] # (N, T) nodes, time
 # use only the u values
 diff_data = u
 for i in 1:64
@@ -350,7 +350,7 @@ model_flux = Flux.Chain(
 ) |> Flux.gpu
 ps = Flux.params(model_flux)
 ps = ps |> Flux.gpu
-(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=false, train_ratio = 0.5) |> Flux.gpu
+(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=true, train_ratio = 0.9) |> Flux.gpu
 #test_x, test_y), (_, _) = load_data(diff_datat,targets[65:128];shuffling=false) |> Flux.gpu
 
 # BFGS optimizer for the model
