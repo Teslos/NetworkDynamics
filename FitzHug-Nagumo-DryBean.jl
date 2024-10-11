@@ -32,6 +32,7 @@ function normalize_rows(x::AbstractMatrix)
 end
 # target vector
 targets = x[17,:]
+# normalize only the features
 x = normalize_rows(x[1:16,:])
 
 
@@ -229,9 +230,8 @@ using ComponentArrays
 using DiffEqFlux
 using Zygote
 using OneHotArrays
-# network training for the FitzHugh-Nagumo RC last two layers
-rng = Random.default_rng()
 
+# network training for the FitzHugh-Nagumo RC last two layers
 function load_data(x, y; shuffling=true, train_ratio = 1.0)
     num_samples = size(x, 1)
     classes = unique(y)
