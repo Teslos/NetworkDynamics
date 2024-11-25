@@ -32,7 +32,7 @@ end
 
 #digits = img_train
 img_digits = load_digits()
-num_digits = 100
+num_digits = 90
 # shuffle the data
 shuffle_indices = shuffle(rng, 1:num_digits)
 #pl_digits = permutedims(reshape(img_digits["data"][shuffle_indices,:],:,8,8),(1,3,2))
@@ -51,8 +51,8 @@ end
 fig
 GLMakie.save("digits.png", fig)
 
-#g_directed, edge_weights = create_graph()
-g_directed = create_barabasi_albert_graph()
+g_directed, edge_weights = create_graph()
+#g_directed = create_barabasi_albert_graph()
 edge_weights = ones(length(edges(g_directed)))
 x = pl_digits ./ 16.0
 # convert the data to spike trains
@@ -63,7 +63,8 @@ spike_train = Float32.(permutedims(spike_train,(2,1,3,4)))
 spike_train_test = Float32.(permutedims(spike_train_test,(2,1,3,4)))
 spike_train = reshape(spike_train, :,8*8*8)
 print("spike_train size:",size(spike_train)) 
-tspike = collect(1:size(spike_train,2))
+#tspike = collect(1:size(spike_train,2))
+tspike = LinRange(0.0, 8.0, size(spike_train,2))
 nsamples = size(spike_train,1)
 gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
 print("gs size:",size(gs))
@@ -73,12 +74,16 @@ using NetworkDynamics
 Base.@propagate_inbounds function duffing_vertex!(dv, v, edges, p, t)
     g = p
     dv[1] = v[2]
+    e_s, e_d = edges
     # Duffing oscillator
     omega = ω - rand()*0.05
     # we are setting the frequency to be constant 
     # omega = ω
     dv[2] = -v[1] - β * v[1]^3 - d*v[2] + g(t)
-    for e in edges
+    for e in e_s
+        dv[1] -= e[1]
+    end
+    for e in e_d
         dv[1] += e[1]
     end
     nothing
@@ -114,7 +119,7 @@ x0[1] = 1.0
 # Solving the ODE
 using OrdinaryDiffEq
 
-tspan = (0.0, 16.0)
+tspan = (0.0, 8.0)
 prob = ODEProblem(duffing_network!, x0, tspan, p)
 sol = solve(prob, AutoTsit5(TRBDF2()))
 

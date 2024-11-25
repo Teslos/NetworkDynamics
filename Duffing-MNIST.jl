@@ -82,7 +82,13 @@ g_weighted = SimpleWeightedDiGraph(G)
 # For later use, we extract the edge.weight attributes
 # . is the broadcast operator and gets the attribute :weight for every edge 
 #edge_weights = getfield.(collect(edges(g_weighted)), :weight)
-
+function create_barabasi_albert_graph(N)
+    g = barabasi_albert(N, floor(Int, 0.05*N))
+    edge_weights = ones(length(edges(g)))
+    g_weighted = SimpleDiGraph(g)
+    g_directed = SimpleDiGraph(g_weighted)
+    return g_directed, edge_weights
+end
 # we promote the g_weighted as directed graph (weights of the edges are included in parameters)
 #g_directed = SimpleDiGraph(g_weighted)
 function create_complete_graph(N::Int=5)
@@ -102,7 +108,18 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
+# create watts-strogatz graph
+function create_watts_strogatz_graph(N)
+    g = watts_strogatz(N, 4, 0.1)
+    edge_weights = ones(length(edges(g)))
+    g_weighted = SimpleDiGraph(g)
+    g_directed = SimpleDiGraph(g_weighted)
+    return g_directed, edge_weights
+end
+
 g_directed, edge_weights = create_complete_graph(512)
+#g_directed, edge_weights = create_barabasi_albert_graph(1024)
+
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
@@ -146,6 +163,7 @@ const a = 0.5
 const σ = 1.0
 const f = 0.1
 const β = 20.0
+
 const ω = 1.0
 const d = 0.1
 # produce the training data
@@ -190,14 +208,16 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
     spike_train_test = Float32.(permutedims(spike_train_test,(2,1,3,4)))
     spike_train = reshape(spike_train, :,8*8*8)
     print("spike_train size:",size(spike_train)) 
-    tspike = collect(1:size(spike_train,2))
+    #tspike = collect(1:size(spike_train,2))
+    tspike = LinRange(0.0, 512.0, size(spike_train,2))
+    
     nsamples = size(spike_train,1)
     gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
     print("gs size:",size(gs))
 
     # different weights for edges, because the resitivity of the edges are always positive
-    # w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
-    w_ij = ones(ne(g_directed))
+    w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+    #w_ij = ones(ne(g_directed))
     nosc = nv(g_directed)
     uall = zeros(Float64, 1, N)
 
@@ -205,7 +225,7 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
         #Initial conditions
         x0 = rand(Float64,2*N)
         # set the problem
-        tspan = (0.0, Float64(size(spike_train,2)))
+        tspan = (0.0, 512.0)
         datasize = size(spike_train,2)
         tsteps = range(tspan[1], tspan[2], length=datasize)
         prob = ODEProblem(fhn_network!, x0, tspan, p)
