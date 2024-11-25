@@ -1,5 +1,12 @@
 using DelimitedFiles
+using Random
+using ScikitLearn
+using Dierckx
+using Interpolations
 
+rng = Xoshiro(1234)
+@sk_import datasets: load_digits
+include("spikerate.jl")
 # adjust the load path for your system
 G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
 
@@ -23,14 +30,48 @@ function create_barabasi_albert_graph()
     return g
 end
 
+#digits = img_train
+img_digits = load_digits()
+num_digits = 100
+# shuffle the data
+shuffle_indices = shuffle(rng, 1:num_digits)
+#pl_digits = permutedims(reshape(img_digits["data"][shuffle_indices,:],:,8,8),(1,3,2))
+#pl_digits = permutedims(reshape(digits[shuffle_indices,1:64], :, 8, 8), (3,2,1))
+pl_digits = img_digits["images"][shuffle_indices,:,:]
+# target values
+targets = img_digits["target"][shuffle_indices]
+#targets = digits[shuffle_indices,65]
+using GLMakie
+fig = GLMakie.Figure()
+for i in 1:5
+    ax = GLMakie.Axis(fig[1, i], title="Digit $(img_digits["target"][i])", aspect = DataAspect())
+    img = rotr90(img_digits["images"][i,:,:])
+    GLMakie.heatmap!(ax, img, colormap=:viridis)
+end
+fig
+GLMakie.save("digits.png", fig)
 
-g_directed, edge_weights = create_graph()
-#g_directed = create_barabasi_albert_graph()
+#g_directed, edge_weights = create_graph()
+g_directed = create_barabasi_albert_graph()
 edge_weights = ones(length(edges(g_directed)))
+x = pl_digits ./ 16.0
+# convert the data to spike trains
+spike_train = spikerate.rate(x, 8)
+spike_train_test = spikerate.rate(x, 8)
+# convert the spike train to a Float32 array and (time, color, 1)
+spike_train = Float32.(permutedims(spike_train,(2,1,3,4)))
+spike_train_test = Float32.(permutedims(spike_train_test,(2,1,3,4)))
+spike_train = reshape(spike_train, :,8*8*8)
+print("spike_train size:",size(spike_train)) 
+tspike = collect(1:size(spike_train,2))
+nsamples = size(spike_train,1)
+gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
+print("gs size:",size(gs))
 
 using NetworkDynamics
 
 Base.@propagate_inbounds function duffing_vertex!(dv, v, edges, p, t)
+    g = p
     dv[1] = v[2]
     e_s, e_d  = edges
     # Duffing oscillator
@@ -58,7 +99,7 @@ odeeleedge = StaticEdge(; f=duffing_edge!, dim=1, coupling=:directed)
 duffing_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 
 # Parameter handling
-N = 90 # Number of nodes
+N = nv(g_directed) # Number of nodes
 const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
 const a = 0.5
 const σ = 1.0
@@ -69,7 +110,7 @@ const d = 0.1
 
 
 # Tuple of parameters for nodes and edges
-p = (nothing, σ * edge_weights)
+p = (gs, σ * edge_weights)
 #Initial conditions
 x0 = randn(2N)
 x0[1] = 1.0
