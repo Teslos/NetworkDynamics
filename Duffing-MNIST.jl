@@ -197,11 +197,12 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
     print("gs size:",size(gs))
     
     # different weights for edges, because the resitivity of the edges are always positive
-    w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+    # w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+    w_ij = ones(ne(g_directed))
     nosc = nv(g_directed)
     uall = zeros(Float64, 1, N)
 
-        p = (gs, σ * w_ij)
+        p = (gs, w_ij)
         #Initial conditions
         x0 = rand(Float64,2*N)
         # set the problem
