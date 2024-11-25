@@ -103,7 +103,7 @@ duffing_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 N = nv(g_directed) # Number of nodes
 const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
 const a = 0.5
-const σ = 1
+const σ = 1.0
 const f = 0.1
 const β = 20.0
 const ω = 1.0
@@ -119,6 +119,7 @@ x0[1] = 1.0
 # Solving the ODE
 using OrdinaryDiffEq
 
+tspan = (0.0, 8.0)
 tspan = (0.0, 8.0)
 prob = ODEProblem(duffing_network!, x0, tspan, p)
 sol = solve(prob, AutoTsit5(TRBDF2()))
