@@ -108,22 +108,21 @@ println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
 using NetworkDynamics
 
-R0 = 0.5
-
 x = pl_digits ./ 16.0
-
-g0v = [interpolate(i <= 16 ? spike_train[:,i] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal only for some nodes
-e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
 
 @inline Base.@propagate_inbounds function duffing_vertex!(dv, v, edges, p, t)
     f = p # forcing term
+    e_s, e_d = edges
     dv[1] = v[2]
     # Duffing oscillator
     omega = ω - rand()*0.05
     # we are setting the frequency to be constant 
     # omega = ω
-    dv[2] = -v[1] - β * v[1]^3 - d*v[2] + f(t)*cos(omega*t)
-    for e in edges
+    dv[2] = -ω * v[1] - β * v[1]^3 - d*v[2] + f(t)
+    for e in e_s
+        dv[1] -= e[1]
+    end
+    for e in e_d
         dv[1] += e[1]
     end
     nothing
@@ -144,7 +143,7 @@ N = nv(g_directed) # Number of nodes in the network
 
 const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
 const a = 0.5
-const σ = 10.0
+const σ = 1.0
 const f = 0.1
 const β = 20.0
 const ω = 1.0
@@ -184,24 +183,25 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
     num_train_samples = Int(floor(num_samples * train_ratio))
 
     # convert the data to spike trains
-    spike_train = spikerate.rate(x, 32)
-    spike_train_test = spikerate.rate(x, 32)
+    spike_train = spikerate.rate(x, 8)
+    spike_train_test = spikerate.rate(x, 8)
     # convert the spike train to a Float32 array and (time, color, 1)
     spike_train = Float32.(permutedims(spike_train,(2,1,3,4)))
     spike_train_test = Float32.(permutedims(spike_train_test,(2,1,3,4)))
-    spike_train = reshape(spike_train, :,32*8*8)
+    spike_train = reshape(spike_train, :,8*8*8)
     print("spike_train size:",size(spike_train)) 
     tspike = collect(1:size(spike_train,2))
     nsamples = size(spike_train,1)
     gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
     print("gs size:",size(gs))
-    
+
     # different weights for edges, because the resitivity of the edges are always positive
-    w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+    # w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+    w_ij = ones(ne(g_directed))
     nosc = nv(g_directed)
     uall = zeros(Float64, 1, N)
 
-        p = (gs, σ * w_ij)
+        p = (gs, w_ij)
         #Initial conditions
         x0 = rand(Float64,2*N)
         # set the problem
@@ -209,7 +209,6 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
         datasize = size(spike_train,2)
         tsteps = range(tspan[1], tspan[2], length=datasize)
         prob = ODEProblem(fhn_network!, x0, tspan, p)
-        R0 = 0.5
         # solve the FitzHugh-Nagumo network
         sol = solve(prob, Tsit5(), saveat=tsteps)
         # if solution converges, then the solution is saved
@@ -325,7 +324,7 @@ end
 
 dim_system = 10
 model_flux = Flux.Chain(
-    Flux.Dense(2048, 512, swish),
+    Flux.Dense(512, 512, swish),
     Flux.Dense(512, 256, swish),
     Flux.Dense(256, dim_system),
     Flux.softmax
