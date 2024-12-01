@@ -101,6 +101,8 @@ spike_train_test = Float32.(reshape(spike_train_test, :,256))
 tspike = collect(1:size(spike_train,1))
 
 #j0 = zeros(Float64, 350)
+
+
 g0 =  zeros(Float64, size(spike_train,1))
 
 R0 = 0.5
