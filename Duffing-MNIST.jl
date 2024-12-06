@@ -330,7 +330,7 @@ data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=64, shuffle=tr
 for epoch in 1:epochs
     for (x, y) in data_loader
         Flux.train!(loss_ce, ps, [(x, y)], opt)
-        println("Epoch $epoch, Loss: $(loss(x, y))")
+        println("Epoch $epoch, Loss: $(loss_ce(x, y))")
     end
 end
 

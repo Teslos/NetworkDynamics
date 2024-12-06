@@ -2,7 +2,6 @@ using Pkg
 Pkg.activate(".")
 using DelimitedFiles
 using Graphs
-using MLUtils
 using Interpolations
 using Distributions
 using FileIO
@@ -23,60 +22,20 @@ include("drybean.jl")
 G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
 
 using SimpleWeightedGraphs, Graphs
-# process digit data from the MNIST dataset
-function load_digits_data()
-    # read the training data
-    directory = joinpath(@__DIR__, "digits")
-    lines = readdlm(joinpath(directory, "optdigits.tra"), ',', Int, comment_char='#')
-    # read the test data
-    lines_test = readdlm(joinpath(directory, "optdigits.tes"), ',', Int, comment_char='#')
 
-    # Print the shape of the data
-    println("Training data shape: ", size(lines))
-    println("Test data shape: ", size(lines_test))
-    print("Training data: ", lines[1:5,:])
-    print("Test data: ", lines_test[1:5,:])
-    return lines, lines_test
+# read the dry bean dataset
+db = drybean.read_drybean()
+x = Matrix(permutedims(db[shuffle(rng, 1:end), :]))
+function normalize_rows(x::AbstractMatrix)
+    x = x ./ maximum(x, dims=2)
+    return x
 end
+# target vector
+targets = x[17,:]
+# normalize only the features
+x = normalize_rows(x[1:16,:])
 
-using GLMakie
-using CairoMakie
-img_train, img_test = load_digits_data()
-fig = CairoMakie.Figure()
 
-
-# read the data
-function load_image_as_array(file_path::String)
-    img_array = zeros(Float64, 8, 8, 2)
-    for i in 1:2
-        file = joinpath(file_path,"digit-$(i).jpg")
-        img = FileIO.load(file)
-        print(img)
-        img = Gray.(img)
-        img_array[:,:,i] = convert(Array{Float64,2}, img)
-    end
-    return img_array
-end
-
-image_digits = load_image_as_array("digits/")
-#digits = img_train
-img_digits = load_digits()
-num_digits = 1797
-# shuffle the data
-shuffle_indices = shuffle(rng, 1:num_digits)
-#pl_digits = permutedims(reshape(img_digits["data"][shuffle_indices,:],:,8,8),(1,3,2))
-#pl_digits = permutedims(reshape(digits[shuffle_indices,1:64], :, 8, 8), (3,2,1))
-pl_digits = img_digits["images"][shuffle_indices,:,:]
-# target values
-targets = img_digits["target"][shuffle_indices]
-#targets = digits[shuffle_indices,65]
-for i in 1:5
-    ax = CairoMakie.Axis(fig[1, i], title="Digit $(img_digits["target"][i])", aspect = DataAspect())
-    img = rotr90(img_digits["images"][i,:,:])
-    CairoMakie.heatmap!(ax, img, colormap=:viridis)
-end
-fig
-CairoMakie.save("digits.svg", fig)
 # first we need to create a weighted, directed graph
 g_weighted = SimpleWeightedDiGraph(G)
 
@@ -103,17 +62,54 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
-g_directed, edge_weights = create_complete_graph(1797)
+g_directed, edge_weights = create_complete_graph(16*16)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
 using NetworkDynamics
 
+# function to generate the spike train
+# rate: the rate of the pulse
+# duration: the duration of the signal
+# Tp: the duration of the pulse
+# example: 0.5 rate we will have 0.5 * duration pulses
+
+function pulse_generator(Tp, rate, duration)
+    # Calculate the number of pulses
+    num_pulses = Int(floor(duration * rate))
+    
+    # Initialize the current signal array
+    signal = zeros(Float64, duration)
+    
+    # Generate the pulses
+    for i in 1:num_pulses
+        start_index = (i - 1) * Int(floor(1 / rate)) + 1
+        end_index = min(start_index + Tp - 1, duration)
+        signal[start_index:end_index] .= 1
+    end
+    
+    return signal
+end
+# @Note: repeat only 1 num_steps for the pulse,
+# so we have (1, channels, samples) for the spike train
+spike_train = spikerate.rate(x[:,1:(16*256)], 1)
+spike_train_test = spikerate.rate(x[:,4097:8192], 1)
+# convert the spike train to a Float32 array and (time, color, 1)
+#spike_train = reshape(Float32.(spike_train), 350, :, 1)
+spike_train = Float32.(reshape(spike_train, :,256)) 
+spike_train_test = Float32.(reshape(spike_train_test, :,256))
+#spike_train = Float32.(spike_train)
+tspike = collect(1:size(spike_train,1))
+
+#j0 = zeros(Float64, 350)
+
+
+g0 =  zeros(Float64, size(spike_train,1))
+
 R0 = 0.5
-
-x = pl_digits ./ 16.0
-
-g0v = [interpolate(i <= 16 ? spike_train[:,i] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal only for some nodes
+gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes, but use channels
+gst = [Spline1D(tspike, spike_train_test[i,:], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes, but use channels
+g0v = [interpolate(i <= 16 ? spike_train[i,:] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal only for some nodes
 e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
 
 @inline Base.@propagate_inbounds function fhn_electrical_vertex_simple!(dv, v, edges, p, t)
@@ -183,24 +179,48 @@ fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 N = nv(g_directed) # Number of nodes in the network
 const ϵ = 0.05 # time scale separation parameter, default value is 0.05
 const a = 0.5 # threshold parameter abs(a) < 1 is self-sustained limit cycle, abs(a) = 1 is a Hopf bifurcation
-const σ = 0.06
+const σ = 0.006
 
+# different weights for edges, because the resitivity of the edges are always positive
+w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
 
+# Tuple of parameters for nodes and edges
+p = (gs,σ * w_ij)
+#Initial conditions
+#rng = Random.default_rng()
+x0 = rand(Float64, 2*N)
 
 # produce the training data
 using OrdinaryDiffEq
 
+tspan = (0.0, Float64(size(spike_train,1)))
+datasize = 256
+tsteps = range(tspan[1], tspan[2], length=datasize)
+prob = ODEProblem(fhn_network!, x0, tspan, p)
+sol = solve(prob, Tsit5(), saveat=tsteps)
+diff_data = Array(sol)
 
+# produce the test data
+# test parameters
+p = (gst,σ * w_ij)
+probt = remake(prob, p=p)
+solt = solve(probt, Tsit5(), saveat=tsteps)
+diff_datat = solt(solt.t)[1:2:256,:]
 # using the new plotting package CairoMakie
-function plot_sol(u, t_steps, num_sol)
-    fig = Figure()
-    ax = CairoMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
-    for i in 1:num_sol
-        lines!(ax, t_steps, u[i,:], label="Oscillator $i")
-    end
-    fig
-    CairoMakie.save("FitzHug-Nagumo_MNIST.svg", fig)
+using GLMakie
+fig = Figure()
+ax = GLMakie.Axis(fig[1, 1], xlabel = "Time", ylabel = "u", title = "FitzHugh-Nagumo network")
+t= sol.t
+u = sol(sol.t)[1:2:256,:] # (N, T) nodes, time
+# use only the u values
+diff_data = u
+for i in 1:64
+    lines!(ax, t, u[i,:], label="Oscillator $i")
+    #text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
 end
+#axislegend(ax, position = :rt)
+fig
+GLMakie.save("FitzHug-Nagumo_channels.png", fig)
 using Plots
 
 using Random
@@ -216,69 +236,34 @@ using OneHotArrays
 
 # network training for the FitzHugh-Nagumo RC last two layers
 function load_data(x, y; shuffling=true, train_ratio = 1.0)
-    num_samples = num_digits
-    classes = 0:9
+    num_samples = size(x, 1)
+    classes = unique(y)
 
     num_train_samples = Int(floor(num_samples * train_ratio))
+    if shuffling
+        shuffled_indices = shuffle(rng, 1:num_samples)
+    else
+        shuffled_indices = 1:num_samples
+    end
 
-    # convert the data to spike trains
-    spike_train = spikerate.rate(x, 32)
-    spike_train_test = spikerate.rate(x, 32)
-    # convert the spike train to a Float32 array and (time, color, 1)
-    spike_train = Float32.(permutedims(spike_train,(2,1,3,4)))
-    spike_train_test = Float32.(permutedims(spike_train_test,(2,1,3,4)))
-    spike_train = reshape(spike_train, :,32*8*8)
-    print("spike_train size:",size(spike_train)) 
-    tspike = collect(1:size(spike_train,2))
-    nsamples = size(spike_train,1)
-    gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
-    print("gs size:",size(gs))
-    # different weights for edges, because the resitivity of the edges are always positive
-    w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
-    nosc = nv(g_directed)
-    uall = zeros(Float64, 1, N)
+    # shuffle the data
+    train_indices = shuffled_indices[1:num_train_samples]
+    test_indices = shuffled_indices[num_train_samples+1:end]
+    println("train_indices:",train_indices)
 
-        p = (gs, σ * w_ij)
-        #Initial conditions
-        x0 = rand(Float64, 2*N)
-        # set the problem
-        tspan = (0.0, Float64(size(spike_train,2)))
-        datasize = size(spike_train,2)
-        tsteps = range(tspan[1], tspan[2], length=datasize)
-        prob = ODEProblem(fhn_network!, x0, tspan, p)
-        R0 = 0.5
-        # solve the FitzHugh-Nagumo network
-        sol = solve(prob, Tsit5(), saveat=tsteps)
-        # if solution converges, then the solution is saved
-        if Symbol(sol.retcode) == :Success
-            diff_data = Array(sol)
-            t = sol.t
-            u = sol(sol.t)[1:2:2*N,:] # (N, T) nodes, time
-            print("u size:",size(u))
-            # add the data together
-            uall = u
-
-            print("uall size:",size(uall))
-        else
-            println("Solution did not converge: ", sol.retcode)
-            train_x = []
-            train_y = []
-            test_x = []
-            test_y = []
-        end
-
-    train_x = uall[1:num_train_samples,:]
-    train_y = y[1:num_train_samples]
+    # split the data
+    train_x = x[train_indices,:]
+    train_y = y[train_indices]
     train_y = onehotbatch(train_y, classes)
-    test_x = uall[num_train_samples+1:end,:]
-    test_y = y[num_train_samples+1:end]
+    test_x = x[test_indices,:]
+    test_y = y[test_indices]
     test_y = onehotbatch(test_y, classes)
     return (train_x, train_y), (test_x, test_y)
 end
 
 function create_model()
     return Lux.Chain(
-        Lux.Dense(640, 512, tanh),
+        Lux.Dense(64, 512, tanh),
         Lux.Dense(512, 7)
     )
 end
@@ -344,7 +329,7 @@ using FluxOptTools
 using Flux, CUDA
 # initialize CUDA
 Flux.gpu_backend!("CUDA")
-#spike_train = spike_train |> Flux.gpu
+spike_train = spike_train |> Flux.gpu
 function loss(x, y)
     y_pred = model_flux(x)
     lossv = sum(abs2, y .- y_pred)
@@ -360,29 +345,27 @@ function loss_ce(x, y)
     return lossv
 end
 
-dim_system = 10
+dim_system = 7
 model_flux = Flux.Chain(
-    Flux.Dense(2048, 512, swish),
-    Flux.Dense(512, 256, swish),
+    Flux.Dense(256, 256, swish),
+    #Flux.Dense(512, 256, swish),
     Flux.Dense(256, dim_system),
     Flux.softmax
 ) |> Flux.gpu
 ps = Flux.params(model_flux)
 ps = ps |> Flux.gpu
-(train_x, train_y), (test_x, test_y) = load_data(x,targets;shuffling=false, train_ratio = 0.8) |> Flux.gpu
+(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=false, train_ratio = 0.8) |> Flux.gpu
+#test_x, test_y), (_, _) = load_data(diff_datat,targets[65:128];shuffling=false) |> Flux.gpu
 
 # BFGS optimizer for the model
 #lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
 #res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
 # Standard ADAM optimizer for the model
 opt = Flux.ADAM(0.001)
-epochs = 100
-data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=64, shuffle=true)
+epochs = 1000
 for epoch in 1:epochs
-    for (x, y) in data_loader
-        Flux.train!(loss_ce, ps, [(x, y)], opt)
-        println("Epoch $epoch, Loss: $(loss_ce(x, y))")
-    end
+    Flux.train!(loss_ce, ps, [(train_x', train_y)], opt)
+    println("Epoch $epoch, Loss: $(loss(train_x', train_y))")
 end
 
 # test accuracy
@@ -392,34 +375,13 @@ function accuracy(model, x, y)
     acc = pred_class / size(y, 2)
     return acc
 end
-# define the confusion matrix
-using CategoricalArrays, MLJ
-function confusion_matrix(model, x, y)
-    y_pred = model(x)
-    pred_class = onecold(y_pred)
-    true_class = onecold(y)
-    # get to cpu memory
-    pred_class = pred_class |> Flux.cpu  
-    predictions = pred_class |> CategoricalArray
-    true_class = true_class |> Flux.cpu
-    targets = true_class |> CategoricalArray
-    cm = MLJ.ConfusionMatrix()(targets, predictions)
-    return cm
-end
-accuracy(model_flux, train_x', train_y)
+spike_train_test = spike_train_test |> Flux.gpu
 accuracy(model_flux, test_x', test_y)
-conf = confusion_matrix(model_flux, test_x', test_y)
-# plot confusion matrix
-# Plot confusion matrix for test data using GLMakie
-fig = Figure(resolution = (800, 800))
-ax = CairoMakie.Axis(fig[1, 1], title = "Confusion Matrix", xlabel ="predicted class", ylabel ="true class", aspect = DataAspect())
-CairoMakie.heatmap!(ax, rotr90(conf.mat), colormap = :blues)
-# Annotate the heatmap with the confusion matrix values
-for i in 1:size(conf.mat, 1)
-    for j in 1:size(conf.mat, 2)
-        CairoMakie.text!(ax, j, i, text = string(rotr90(conf.mat)[i,j]), align = (:center, :center), color = :white)
-    end
-end
-fig
-CairoMakie.save("confusion_matrix.svg", fig)
-plot_sol(Array(test_x), collect(1:size(test_x,2)), 16)
+# Load data
+# Create model 
+model = create_model()
+nn_rc, st_rc = Lux.setup(rng, model)
+
+# train the model
+train_model(model,(train_x, train_y), (test_x, test_y); epochs=1000)
+

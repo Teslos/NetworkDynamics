@@ -91,8 +91,8 @@ function pulse_generator(Tp, rate, duration)
     return signal
 end
 
-spike_train = spikerate.rate(x[:,1:256], 16)
-spike_train_test = spikerate.rate(x[:,257:512], 16)
+spike_train = spikerate.rate(x[:,1:256], 18)
+spike_train_test = spikerate.rate(x[:,257:512], 18)
 # convert the spike train to a Float32 array and (time, color, 1)
 #spike_train = reshape(Float32.(spike_train), 350, :, 1)
 spike_train = Float32.(reshape(spike_train, :,256)) 

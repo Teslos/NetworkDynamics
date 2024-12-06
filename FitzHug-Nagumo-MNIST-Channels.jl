@@ -103,7 +103,7 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
-g_directed, edge_weights = create_complete_graph(1797)
+g_directed, edge_weights = create_complete_graph(2048)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
@@ -199,7 +199,7 @@ function plot_sol(u, t_steps, num_sol)
         lines!(ax, t_steps, u[i,:], label="Oscillator $i")
     end
     fig
-    CairoMakie.save("FitzHug-Nagumo_MNIST.svg", fig)
+    CairoMakie.save("FitzHug-Nagumo_MNIST-Channels.svg", fig)
 end
 using Plots
 
@@ -223,15 +223,18 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
 
     # convert the data to spike trains
     spike_train = spikerate.rate(x, 32)
+    println("spike_train size:",size(spike_train))
     spike_train_test = spikerate.rate(x, 32)
     # convert the spike train to a Float32 array and (time, color, 1)
     spike_train = Float32.(permutedims(spike_train,(2,1,3,4)))
     spike_train_test = Float32.(permutedims(spike_train_test,(2,1,3,4)))
     spike_train = reshape(spike_train, :,32*8*8)
     print("spike_train size:",size(spike_train)) 
-    tspike = collect(1:size(spike_train,2))
-    nsamples = size(spike_train,1)
-    gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
+    tspike = collect(1:size(spike_train,1))
+    println("tspike size:",size(tspike))
+    nsamples = size(spike_train,2)
+    println("nsamples size:",nsamples)
+    gs = [Spline1D(tspike, spike_train[:,i], k=2) for i in 1:nsamples] # do spike train interpolation
     print("gs size:",size(gs))
     # different weights for edges, because the resitivity of the edges are always positive
     w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
@@ -377,7 +380,7 @@ ps = ps |> Flux.gpu
 # Standard ADAM optimizer for the model
 opt = Flux.ADAM(0.001)
 epochs = 100
-data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=64, shuffle=true)
+data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=16, shuffle=true)
 for epoch in 1:epochs
     for (x, y) in data_loader
         Flux.train!(loss_ce, ps, [(x, y)], opt)
