@@ -9,6 +9,7 @@ using Random
 using Flux
 using Plots
 using IterTools
+using LaTeXStrings
 function plot_rect_map(N::Int, M::Int, data::Vector{Float64}, ax)
     #ax = GLMakie.Axis(f[1, 1])
     centers_x = 1:N
@@ -20,7 +21,7 @@ function plot_phases(N::Int, M::Int, u::Array{Float64,2}, t::Array{Float64,1}, x
     # Find the index of the value in t that is closest to t0 time
     for t0 in forcing_period:2:tspan[2]
         f = Figure()
-        ax = GLMakie.Axis(f[1, 1], xlabel = "Node", ylabel = "u", title = "XOR gate network at time $t0")
+        ax = GLMakie.Axis(f[1, 1], xlabel = "Node", ylabel = "", title = "XOR gate network at time $t0")
         index_closest_to_t = findmin(abs.(t .- t0))[2]
         state_vector_at_t = [mod2pi((u[i,index_closest_to_t]-u[1,index_closest_to_t])) for i in 1:N*M]
         #state_vector_at_t = [mod2pi((u[i,index_closest_to_t]-x0[i]) ) for i in 1:N*M]
@@ -165,10 +166,6 @@ ann_vertex = ODEVertex(; f=wk_vertex!, dim=1, sym=[:v])
 ann_wk_edge = StaticEdge(; f=wk_edge!, dim=1, coupling=:directed)
 wk_network! = network_dynamics(ann_vertex, ann_wk_edge, g)
 probwk = ODEProblem(wk_network!, ϕ0, tspan, pp)
-function distance_func(x, y)
-    return sum(1 .- cos.(x .- y))
-end
-
 
 function distance_func(x, y)
     return sum(1 - cos.(x .- y))
@@ -191,7 +188,9 @@ function loss_neuralode(p, batch, batch_t)
     println("Current loss is: ", loss)
     return loss, pred
 end
+
 loss_function(data, pred) = sum(abs2, data - pred)
+
 function prob_func_neuralode(p,i,repeat)
     ps = (pars[i], p)
     remake(probwk, p=ps, u0=u0s[:,i], saveat=tsteps)
@@ -215,7 +214,7 @@ function loss_multiple_shooting(p; group_size=8)
     println("Iteration $iter finished:")
     loss = multiple_shoot(p, all_solutions, tsteps, prob_ens, EnsembleThreads(), loss_function, Tsit5(), group_size;
     continuity_term=300, trajectories = batch_size)
-    #println("Current loss is: ", sum(loss))
+    println("Current loss is: ", sum(loss))
     return loss
 end
 

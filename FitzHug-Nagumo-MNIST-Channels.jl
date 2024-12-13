@@ -60,19 +60,19 @@ end
 
 image_digits = load_image_as_array("digits/")
 #digits = img_train
-img_digits = load_digits()
-num_digits = 1797
+img_digits, test_digits = load_digits_data()
+num_digits = 3823
 # shuffle the data
 shuffle_indices = shuffle(rng, 1:num_digits)
 #pl_digits = permutedims(reshape(img_digits["data"][shuffle_indices,:],:,8,8),(1,3,2))
-#pl_digits = permutedims(reshape(digits[shuffle_indices,1:64], :, 8, 8), (3,2,1))
-pl_digits = img_digits["images"][shuffle_indices,:,:]
+pl_digits = permutedims(reshape(img_digits[shuffle_indices,1:64], :, 8, 8), (3,2,1))
+#pl_digits = img_digits["images"][shuffle_indices,:,:]
 # target values
-targets = img_digits["target"][shuffle_indices]
-#targets = digits[shuffle_indices,65]
+#targets = img_digits["target"][shuffle_indices]
+targets = img_digits[shuffle_indices,65]
 for i in 1:5
-    ax = CairoMakie.Axis(fig[1, i], title="Digit $(img_digits["target"][i])", aspect = DataAspect())
-    img = rotr90(img_digits["images"][i,:,:])
+    ax = CairoMakie.Axis(fig[1, i], title="Digit $(img_digits[i])", aspect = DataAspect())
+    img = rotr90(pl_digits[:,:,i])
     CairoMakie.heatmap!(ax, img, colormap=:viridis)
 end
 fig
@@ -200,6 +200,7 @@ function plot_sol(u, t_steps, num_sol)
     end
     fig
     CairoMakie.save("FitzHug-Nagumo_MNIST-Channels.svg", fig)
+    CairoMakie.save("FitzHug-Nagumo_MNIST-Channels.png", fig)
 end
 using Plots
 
@@ -215,7 +216,7 @@ using Zygote
 using OneHotArrays
 
 # network training for the FitzHugh-Nagumo RC last two layers
-function load_data(x, y; shuffling=true, train_ratio = 1.0)
+function load_data(x, y; train_ratio = 1.0)
     num_samples = num_digits
     classes = 0:9
 
@@ -245,8 +246,8 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
         #Initial conditions
         x0 = rand(Float64, 2*N)
         # set the problem
-        tspan = (0.0, Float64(size(spike_train,2)))
-        datasize = size(spike_train,2)
+        tspan = (0.0, Float64(size(spike_train,1)))
+        datasize = size(spike_train,1)
         tsteps = range(tspan[1], tspan[2], length=datasize)
         prob = ODEProblem(fhn_network!, x0, tspan, p)
         R0 = 0.5
@@ -256,7 +257,7 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
         if Symbol(sol.retcode) == :Success
             diff_data = Array(sol)
             t = sol.t
-            u = sol(sol.t)[1:2:2*N,:] # (N, T) nodes, time
+            u = sol(sol.t)[1:2:2*N,:] # (N, T) nodes, time -> (CH, T) channels, time
             print("u size:",size(u))
             # add the data together
             uall = u
@@ -270,10 +271,10 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
             test_y = []
         end
 
-    train_x = uall[1:num_train_samples,:]
+    train_x = uall[:, 1:num_train_samples]
     train_y = y[1:num_train_samples]
     train_y = onehotbatch(train_y, classes)
-    test_x = uall[num_train_samples+1:end,:]
+    test_x = uall[:, num_train_samples+1:end]
     test_y = y[num_train_samples+1:end]
     test_y = onehotbatch(test_y, classes)
     return (train_x, train_y), (test_x, test_y)
@@ -372,15 +373,15 @@ model_flux = Flux.Chain(
 ) |> Flux.gpu
 ps = Flux.params(model_flux)
 ps = ps |> Flux.gpu
-(train_x, train_y), (test_x, test_y) = load_data(x,targets;shuffling=false, train_ratio = 0.8) |> Flux.gpu
+(train_x, train_y), (test_x, test_y) = load_data(x,targets; train_ratio = 0.8) |> Flux.gpu
 
 # BFGS optimizer for the model
 #lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
 #res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
 # Standard ADAM optimizer for the model
 opt = Flux.ADAM(0.001)
-epochs = 100
-data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=16, shuffle=true)
+epochs = 1000
+data_loader = Flux.Data.DataLoader((train_x, train_y), batchsize=32, shuffle=true)
 for epoch in 1:epochs
     for (x, y) in data_loader
         Flux.train!(loss_ce, ps, [(x, y)], opt)
@@ -409,8 +410,8 @@ function confusion_matrix(model, x, y)
     cm = MLJ.ConfusionMatrix()(targets, predictions)
     return cm
 end
-accuracy(model_flux, train_x', train_y)
-accuracy(model_flux, test_x', test_y)
+accuracy(model_flux, train_x, train_y)
+accuracy(model_flux, test_x, test_y)
 conf = confusion_matrix(model_flux, test_x', test_y)
 # plot confusion matrix
 # Plot confusion matrix for test data using GLMakie
@@ -425,4 +426,4 @@ for i in 1:size(conf.mat, 1)
 end
 fig
 CairoMakie.save("confusion_matrix.svg", fig)
-plot_sol(Array(test_x), collect(1:size(test_x,2)), 16)
+plot_sol(Array(test_x), collect(1:size(test_x,2)), 2)
