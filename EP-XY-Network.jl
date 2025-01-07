@@ -421,8 +421,8 @@ UA_model = SP_XY_Network(N, N_ev, dt, input_index, output_index)
 random_state_initiation!(UA_model)  # Initialize the network state  
 
 # ---------------- Define the network with layered structure ----------------  
-structure_list = [2, 5, 5, 5, 1]  # Number of neurons in each layer  
-N = sum(structure_list)           # Total number of neurons  
+#structure_list = [2, 5, 5, 5, 1]  # Number of neurons in each layer  
+#N = sum(structure_list)           # Total number of neurons  
 
 # Create the layered network  
 #layer_model = SP_XY_Layer_Network(N, N_ev, dt, structure_list)  
