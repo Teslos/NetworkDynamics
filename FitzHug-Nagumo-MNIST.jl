@@ -107,6 +107,7 @@ g_directed, edge_weights = create_complete_graph(1797)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
+
 using NetworkDynamics
 
 R0 = 0.5
@@ -174,7 +175,7 @@ Base.Base.@propagate_inbounds function electrical_edge!(e, v_s, v_d, p, t)
 end
 
 
-odeelevertex = ODEVertex(; f=fhn_electrical_vertex_simple!, dim=2, sym=[:u, :v])
+odeelevertex = NetworkDynamics.ODEVertex(; f=fhn_electrical_vertex_simple!, dim=2, sym=[:u, :v])
 odeeleedge = StaticEdge(; f=electrical_edge_simple!, dim=2, coupling=:directed)
 
 fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
@@ -201,7 +202,6 @@ function plot_sol(u, t_steps, num_sol)
     fig
     CairoMakie.save("FitzHug-Nagumo_MNIST.svg", fig)
 end
-using Plots
 
 using Random
 using Lux
@@ -375,13 +375,27 @@ ps = ps |> Flux.gpu
 #lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
 #res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
 # Standard ADAM optimizer for the model
-opt = Flux.ADAM(0.001)
+opt = Flux.Adam(0.001)
+opt_state = Flux.setup(opt, model_flux)
 epochs = 100
-data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=64, shuffle=true)
+data_loader = Flux.DataLoader((train_x', train_y), batchsize=64, shuffle=true)
 for epoch in 1:epochs
+    lossv = 0.0
     for (x, y) in data_loader
-        Flux.train!(loss_ce, ps, [(x, y)], opt)
-        println("Epoch $epoch, Loss: $(loss_ce(x, y))")
+        # Compute the loss and gradients
+        ls, grads = Flux.withgradient(model_flux) do model_flux
+            y_pred = model_flux(x)
+            Flux.Losses.crossentropy(y_pred, y)
+        end
+        Flux.update!(opt_state, model_flux, grads[1])
+        #Flux.train!(loss_ce, ps, [(x, y)], opt)
+        lossv += ls / length(data_loader)
+        
+        #println("Epoch $epoch, Loss: $(loss_ce(x, y))")
+    end
+    # Print the loss every 10 epochs
+    if epoch % 10 == 0
+        println("Epoch $epoch, Loss: $lossv")
     end
 end
 

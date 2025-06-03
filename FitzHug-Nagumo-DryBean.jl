@@ -23,18 +23,26 @@ G = readdlm(joinpath(@__DIR__, "./Norm_G_DTI.txt"),',', Float64, '\n')
 
 using SimpleWeightedGraphs, Graphs
 
-# read the dry bean dataset
+# read the dry bean dataset (num_samples, features)
 db = drybean.read_drybean()
 x = Matrix(permutedims(db[shuffle(rng, 1:end), :]))
 function normalize_rows(x::AbstractMatrix)
     x = x ./ maximum(x, dims=2)
     return x
 end
+
+# normalize the data
+function standard_scaler(x)
+    # Standardise each column to have mean 0 and stddev 1.
+    μ = mean(x, dims=2)
+    σ = std(x, dims=2)
+    return (x .- μ) ./ σ
+end
 # target vector
 targets = x[17,:]
 # normalize only the features
-x = normalize_rows(x[1:16,:])
-
+# x = normalize_rows(x[1:16,:])
+x = standard_scaler(x[1:16,:])
 
 # first we need to create a weighted, directed graph
 g_weighted = SimpleWeightedDiGraph(G)
@@ -62,7 +70,7 @@ function create_graph(N::Int=8, M::Int=10)
     return g_directed, edge_weights
 end
 
-g_directed, edge_weights = create_complete_graph(16*16)
+g_directed, edge_weights = create_complete_graph(2046)
 println("Number of nodes: ", nv(g_directed))
 println("Number of edges: ", size(edge_weights))
 println("Number of edges: ", ne(g_directed))
@@ -90,15 +98,7 @@ function pulse_generator(Tp, rate, duration)
     
     return signal
 end
-
-spike_train = spikerate.rate(x[:,1:256], 18)
-spike_train_test = spikerate.rate(x[:,257:512], 18)
-# convert the spike train to a Float32 array and (time, color, 1)
-#spike_train = reshape(Float32.(spike_train), 350, :, 1)
-spike_train = Float32.(reshape(spike_train, :,256)) 
-spike_train_test = Float32.(reshape(spike_train_test, :,256))
-#spike_train = Float32.(spike_train)
-tspike = collect(1:size(spike_train,1))
+datasample = 2048
 
 #j0 = zeros(Float64, 350)
 
@@ -178,13 +178,13 @@ fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 N = nv(g_directed) # Number of nodes in the network
 const ϵ = 0.05 # time scale separation parameter, default value is 0.05
 const a = 0.5 # threshold parameter abs(a) < 1 is self-sustained limit cycle, abs(a) = 1 is a Hopf bifurcation
-const σ = 0.006
+const σs = 0.006
 
 # different weights for edges, because the resitivity of the edges are always positive
 w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
 
 # Tuple of parameters for nodes and edges
-p = (gs,σ * w_ij)
+p = (gs,σs * w_ij)
 #Initial conditions
 #rng = Random.default_rng()
 x0 = rand(Float64, 2*N)
@@ -193,7 +193,7 @@ x0 = rand(Float64, 2*N)
 using OrdinaryDiffEq
 
 tspan = (0.0, Float64(size(spike_train,1)))
-datasize = 256
+datasize = 2048 # number of time steps saved
 tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
 sol = solve(prob, Tsit5(), saveat=tsteps)
@@ -220,7 +220,6 @@ end
 #axislegend(ax, position = :rt)
 fig
 GLMakie.save("FitzHug-Nagumo_CALI_10.png", fig)
-using Plots
 
 using Random
 using Lux
@@ -235,7 +234,7 @@ using OneHotArrays
 
 # network training for the FitzHugh-Nagumo RC last two layers
 function load_data(x, y; shuffling=true, train_ratio = 1.0)
-    num_samples = size(x, 1)
+    num_samples = size(x, 2)
     classes = unique(y)
 
     num_train_samples = Int(floor(num_samples * train_ratio))
@@ -245,17 +244,68 @@ function load_data(x, y; shuffling=true, train_ratio = 1.0)
         shuffled_indices = 1:num_samples
     end
 
-    # shuffle the data
-    train_indices = shuffled_indices[1:num_train_samples]
-    test_indices = shuffled_indices[num_train_samples+1:end]
-    println("train_indices:",train_indices)
+    # convert data to spike trains
+    spike_train = spikerate.rate(x, 32)
+    spike_train_test = spikerate.rate(x, 32)
+    # convert the spike train to a Float32 array and (time, color, 1)
 
-    # split the data
-    train_x = x[train_indices,:]
-    train_y = y[train_indices]
+    #spike_train = reshape(Float32.(spike_train), 350, :, 1)
+    spike_train = Float32.(reshape(spike_train, 32*16,:)) 
+    spike_train_test = Float32.(reshape(spike_train_test, 32*16,:))
+    spike_train = permutedims(spike_train, (2, 1))
+    spike_train_test = permutedims(spike_train_test, (2, 1))
+    nsamples = size(spike_train, 1)
+    print("spike_train size:", size(spike_train), " spike_train_test size:", size(spike_train_test))
+    #spike_train = Float32.(spike_train)
+    tspike = collect(1:size(spike_train,2))
+    # create a spline interpolation for the spike train
+    gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
+    print("gs size:",size(gs))
+    # find how many times to repeat calculation for the network
+    # divide the number of samples by the number of nodes
+    N = nv(g_directed) # number of nodes in the network
+    num_batches = nsamples ÷ N
+    uall = Matrix{Float64}(undef, 0, size(spike_train,2)) # initialize the output matrix for the network
+    for i in 1:num_batches
+        # different weights for edges, because the resitivity of the edges are always positive
+        w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+
+        p = (gs[(i-1)*N+1:i*N], σs .* w_ij)
+        #Initial conditions
+        x0 = rand(Float64, 2*N)
+        # set the problem
+        tspan = (0.0, Float64(size(spike_train,2)))
+        datasize = size(spike_train,2)
+        tsteps = range(tspan[1], tspan[2], length=datasize)
+        prob = ODEProblem(fhn_network!, x0, tspan, p)
+        R0 = 0.5
+        # solve the FitzHugh-Nagumo network
+        sol = solve(prob, Tsit5(), saveat=tsteps)
+        # if solution converges, then the solution is saved
+        if Symbol(sol.retcode) == :Success
+            diff_data = Array(sol)
+            t = sol.t
+            u = sol(sol.t)[1:2:2*N,:] # (N, T) nodes, time
+            print("u size:",size(u))
+            # add the data together
+            uall = vcat(uall,u)
+            print("uall size:",size(uall))
+        else
+            println("Solution did not converge: ", sol.retcode)
+            train_x = []
+            train_y = []
+            test_x = []
+            test_y = []
+        end
+    end
+    num_train_samples = Int(floor(num_batches * N * train_ratio))
+    # end batch 
+    batch_end = num_batches * N
+    train_x = uall[1:num_train_samples,:]
+    train_y = y[1:num_train_samples]
     train_y = onehotbatch(train_y, classes)
-    test_x = x[test_indices,:]
-    test_y = y[test_indices]
+    test_x = uall[num_train_samples+1:batch_end,:]
+    test_y = y[num_train_samples+1:batch_end]
     test_y = onehotbatch(test_y, classes)
     return (train_x, train_y), (test_x, test_y)
 end
@@ -328,7 +378,7 @@ using FluxOptTools
 using Flux, CUDA
 # initialize CUDA
 Flux.gpu_backend!("CUDA")
-spike_train = spike_train |> Flux.gpu
+#spike_train = spike_train |> Flux.gpu
 function loss(x, y)
     y_pred = model_flux(x)
     lossv = sum(abs2, y .- y_pred)
@@ -346,25 +396,42 @@ end
 
 dim_system = 7
 model_flux = Flux.Chain(
-    Flux.Dense(256, 512, swish),
-    Flux.Dense(512, 256, swish),
-    Flux.Dense(256, dim_system),
+    Flux.Dense(512=>512, swish),
+    Flux.Dense(512=>256, swish),
+    Flux.Dense(256=>dim_system),
     Flux.softmax
 ) |> Flux.gpu
 ps = Flux.params(model_flux)
 ps = ps |> Flux.gpu
-(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=true, train_ratio = 0.9) |> Flux.gpu
+(train_x, train_y), (test_x, test_y) = load_data(x,targets;shuffling=false, train_ratio = 0.9) |> Flux.gpu
 #test_x, test_y), (_, _) = load_data(diff_datat,targets[65:128];shuffling=false) |> Flux.gpu
 
 # BFGS optimizer for the model
 #lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
 #res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
 # Standard ADAM optimizer for the model
-opt = Flux.ADAM(0.001)
-epochs = 5000
+opt = Flux.Adam(0.001)
+opt_state = Flux.setup(opt, model_flux)
+epochs = 1000
+dataloader = Flux.DataLoader((train_x', train_y), batchsize=128, shuffle=false)
 for epoch in 1:epochs
-    Flux.train!(loss_ce, ps, [(train_x', train_y)], opt)
-    println("Epoch $epoch, Loss: $(loss(train_x', train_y))")
+    lossv = 0.0
+    for (x, y) in dataloader
+        # Compute the loss and gradients
+        ls, grads = Flux.withgradient(model_flux) do model_flux
+            y_pred = model_flux(x)
+            Flux.Losses.crossentropy(y_pred, y)
+        end
+        Flux.update!(opt_state, model_flux, grads[1])
+        #Flux.train!(loss_ce, ps, [(x, y)], opt)
+        lossv += ls / length(dataloader)
+        #Flux.train!(loss_ce, ps, [(x, y)], opt)
+        #println("Epoch $epoch, Loss: $(loss_ce(x,y))")
+    end
+    # Print the loss every 10 epochs
+    if epoch % 10 == 0
+        println("Epoch $epoch, Loss: $lossv")
+    end
 end
 
 # test accuracy
@@ -374,13 +441,105 @@ function accuracy(model, x, y)
     acc = pred_class / size(y, 2)
     return acc
 end
-spike_train_test = spike_train_test |> Flux.gpu
-accuracy(model_flux, test_x', test_y)
-# Load data
-# Create model 
-model = create_model()
-nn_rc, st_rc = Lux.setup(rng, model)
+# define the confusion matrix
+using CairoMakie
+using CategoricalArrays, MLJ
+function confusion_matrix(model, x, y)
+    y_pred = model(x)
+    pred_class = onecold(y_pred)
+    true_class = onecold(y)
+    # get to cpu memory
+    pred_class = pred_class |> Flux.cpu  
+    predictions = pred_class |> CategoricalArray
+    true_class = true_class |> Flux.cpu
+    targets = true_class |> CategoricalArray
+    cm = MLJ.ConfusionMatrix()(targets, predictions)
+    return cm
+end
+accuracy(model_flux, train_x', train_y)
+accuracy(model_flux, test_x', test_y[:,1:size(test_x,1)])
+conf = confusion_matrix(model_flux, test_x', test_y)
+# plot confusion matrix
+# Plot confusion matrix for test data using GLMakie
+fig = Figure(resolution = (800, 800))
+ax = CairoMakie.Axis(fig[1, 1], title = "Confusion Matrix", xlabel ="predicted class", ylabel ="true class", aspect = DataAspect())
+CairoMakie.heatmap!(ax, rotr90(conf.mat), colormap = :blues)
+# Annotate the heatmap with the confusion matrix values
+for i in 1:size(conf.mat, 1)
+    for j in 1:size(conf.mat, 2)
+        CairoMakie.text!(ax, j, i, text = string(rotr90(conf.mat)[i,j]), align = (:center, :center), color = :white)
+    end
+end
+fig
+CairoMakie.display(fig)
+CairoMakie.save("confusion_matrix_dry_bean.svg", fig)
 
-# train the model
-train_model(model,(train_x, train_y), (test_x, test_y); epochs=1000)
+function confusion_matrix_with_labels(model, x, y, class_names)
+    y_pred = model(x)
+    pred_class = onecold(y_pred)
+    true_class = onecold(y)
+    
+    # Move to CPU memory
+    pred_class = pred_class |> Flux.cpu  
+    predictions = pred_class |> CategoricalArray
+    true_class = true_class |> Flux.cpu
+    targets = true_class |> CategoricalArray
+    
+    # Compute confusion matrix
+    cm = MLJ.ConfusionMatrix()(targets, predictions)
+    
+    # Convert to percentages
+    cm_percent = cm.mat ./ sum(cm.mat, dims=2) .* 100
+    
+    return cm, cm_percent
+end
+
+# Define your class names (adjust according to your dry bean classes)
+class_names = ["SEKER", "BARBUNYA", "BOMBAY", "CALI", "HOROZ", "SIRA", "DERMASON"]
+
+# Get confusion matrix and percentages
+conf, conf_percent = confusion_matrix_with_labels(model_flux, test_x', test_y, class_names)
+
+# Plot confusion matrix with class names and percentages
+fig = Figure(resolution = (1000, 800))
+ax = CairoMakie.Axis(fig[1, 1], 
+    title = "Confusion Matrix (%)", 
+    xlabel = "Predicted Class", 
+    ylabel = "True Class"
+)
+
+# Set custom ticks with class names
+ax.xticks = (1:length(class_names), class_names)
+ax.yticks = (1:length(class_names), reverse(class_names))
+ax.xticklabelrotation = π/4  # Rotate x-axis labels for better readability
+
+# Create heatmap with percentages
+hm = CairoMakie.heatmap!(ax, rotr90(conf_percent), colormap = :blues, colorrange = (0, 100))
+
+# Add colorbar
+Colorbar(fig[1, 2], hm, label = "Percentage (%)")
+
+# Annotate with percentage values
+for i in 1:size(conf_percent, 1)
+    for j in 1:size(conf_percent, 2)
+        percentage_val = rotr90(conf_percent)[i, j]
+        text_color = percentage_val > 50 ? :white : :black  # Use white text for dark cells
+        CairoMakie.text!(ax, j, i, 
+            text = string(round(percentage_val, digits=1), "%"), 
+            align = (:center, :center), 
+            color = text_color,
+            fontsize = 12
+        )
+    end
+end
+
+# Adjust layout
+resize_to_layout!(fig)
+
+# Display and save
+display(fig)
+save("confusion_matrix_dry_bean_percent.png", fig)
+
+
+
 

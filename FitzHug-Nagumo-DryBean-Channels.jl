@@ -30,10 +30,19 @@ function normalize_rows(x::AbstractMatrix)
     x = x ./ maximum(x, dims=2)
     return x
 end
+# standard scaler function, 
+function standard_scaler(x)
+    # Standardise each column to have mean 0 and stddev 1.
+    μ = mean(x, dims=2)
+    σ = std(x, dims=2)
+    return (x .- μ) ./ σ
+end
+
 # target vector
 targets = x[17,:]
 # normalize only the features
-x = normalize_rows(x[1:16,:])
+# x = normalize_rows(x[1:16,:])
+x = standard_scaler(x[1:16,:])
 
 
 # first we need to create a weighted, directed graph
@@ -92,14 +101,15 @@ function pulse_generator(Tp, rate, duration)
 end
 # @Note: repeat only 1 num_steps for the pulse,
 # so we have (1, channels, samples) for the spike train
-spike_train = spikerate.rate(x[:,1:(16*256)], 1)
-spike_train_test = spikerate.rate(x[:,4097:8192], 1)
+spike_train = spikerate.rate(x[:,1:(16*512)], 1)
+spike_train_test = spikerate.rate(x[:,8193:12288], 1)
 # convert the spike train to a Float32 array and (time, color, 1)
 #spike_train = reshape(Float32.(spike_train), 350, :, 1)
 spike_train = Float32.(reshape(spike_train, :,256)) 
 spike_train_test = Float32.(reshape(spike_train_test, :,256))
 #spike_train = Float32.(spike_train)
-tspike = collect(1:size(spike_train,1))
+tspike = collect(1:size(spike_train,2))
+tspike_test = collect(1:size(spike_train_test,2))
 
 #j0 = zeros(Float64, 350)
 
@@ -108,7 +118,7 @@ g0 =  zeros(Float64, size(spike_train,1))
 
 R0 = 0.5
 gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes, but use channels
-gst = [Spline1D(tspike, spike_train_test[i,:], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes, but use channels
+gst = [Spline1D(tspike_test, spike_train_test[i,:], k=2) for i in 1:nv(g_directed)] # repeat the signal for all nodes, but use channels
 g0v = [interpolate(i <= 16 ? spike_train[i,:] : g0, BSpline(Quadratic(Line(OnCell())))) for i in 1:nv(g_directed)] # repeat the signal only for some nodes
 e0v = [g0 .* R0 for _ in 1:ne(g_directed)] # repeat the signal for all edges
 
@@ -179,13 +189,13 @@ fhn_network! = network_dynamics(odeelevertex, odeeleedge, g_directed)
 N = nv(g_directed) # Number of nodes in the network
 const ϵ = 0.05 # time scale separation parameter, default value is 0.05
 const a = 0.5 # threshold parameter abs(a) < 1 is self-sustained limit cycle, abs(a) = 1 is a Hopf bifurcation
-const σ = 0.006
+const σs = 0.006
 
 # different weights for edges, because the resitivity of the edges are always positive
 w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
 
 # Tuple of parameters for nodes and edges
-p = (gs,σ * w_ij)
+p = (gs,σs * w_ij)
 #Initial conditions
 #rng = Random.default_rng()
 x0 = rand(Float64, 2*N)
@@ -194,7 +204,7 @@ x0 = rand(Float64, 2*N)
 using OrdinaryDiffEq
 
 tspan = (0.0, Float64(size(spike_train,1)))
-datasize = 256
+datasize = 2048 # number of time steps for the training data
 tsteps = range(tspan[1], tspan[2], length=datasize)
 prob = ODEProblem(fhn_network!, x0, tspan, p)
 sol = solve(prob, Tsit5(), saveat=tsteps)
@@ -202,10 +212,11 @@ diff_data = Array(sol)
 
 # produce the test data
 # test parameters
-p = (gst,σ * w_ij)
+p = (gst,σs * w_ij)
 probt = remake(prob, p=p)
 solt = solve(probt, Tsit5(), saveat=tsteps)
-diff_datat = solt(solt.t)[1:2:256,:]
+#diff_datat = solt(solt.t)[1:2:256,:]
+diff_datat = Array(solt)
 # using the new plotting package CairoMakie
 using GLMakie
 fig = Figure()
@@ -221,7 +232,6 @@ end
 #axislegend(ax, position = :rt)
 fig
 GLMakie.save("FitzHug-Nagumo_channels.png", fig)
-using Plots
 
 using Random
 using Lux
@@ -347,35 +357,60 @@ end
 
 dim_system = 7
 model_flux = Flux.Chain(
-    Flux.Dense(256, 256, swish),
-    #Flux.Dense(512, 256, swish),
-    Flux.Dense(256, dim_system),
-    Flux.softmax
+    Flux.Dense(2048 => 512, swish),
+    Flux.Dense(512 => 256, swish),
+    Flux.Dense(256 => dim_system),
+    softmax
 ) |> Flux.gpu
 ps = Flux.params(model_flux)
 ps = ps |> Flux.gpu
-(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=false, train_ratio = 0.8) |> Flux.gpu
+(train_x, train_y), (test_x, test_y) = load_data(vcat(diff_data,diff_datat),targets;shuffling=true, train_ratio = 0.8) |> Flux.gpu
 #test_x, test_y), (_, _) = load_data(diff_datat,targets[65:128];shuffling=false) |> Flux.gpu
 
 # BFGS optimizer for the model
 #lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
 #res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
 # Standard ADAM optimizer for the model
-opt = Flux.ADAM(0.001)
-epochs = 1000
-for epoch in 1:epochs
-    Flux.train!(loss_ce, ps, [(train_x', train_y)], opt)
-    println("Epoch $epoch, Loss: $(loss(train_x', train_y))")
+opt = Flux.Adam(0.001)
+opt_state = Flux.setup(opt, model_flux)
+epochs = 5000
+losses = []
+dataloader = Flux.DataLoader((train_x', train_y), batchsize=128, shuffle=true)
+@showprogress for epoch in 1:epochs
+    
+    for (x,y) in dataloader
+        #println("x size:",size(x),"y size:",size(y))
+        (x, y) = (x |> Flux.gpu, y |> Flux.gpu) # move to GPU
+        (loss_value, grads) = Flux.withgradient(model_flux) do model_flux
+            y_pred = model_flux(x)
+            Flux.logitcrossentropy(y_pred, y)
+        end
+        Flux.update!(opt_state, model_flux, grads[1]) # update the parameters
+        push!(losses, loss_value)
+    end
 end
-
+opt_state
+# plot the loss
+using GLMakie
+using ProgressMeter
+fig = GLMakie.Figure()
+ax = GLMakie.Axis(fig[1, 1], xlabel = "Iteration", ylabel = "Loss", title = "Training Loss")
+GLMakie.lines!(ax, 1:length(losses), losses, label="Loss", color=:blue)
+GLMakie.axislegend(ax, position = :rt)
+GLMakie.save("FitzHug-Nagumo_loss.png", fig)
+n = length(dataloader)
+plot!(n:n:length(losses), mean.(Iterators.partition(losses, n)),
+    label="epoch mean", dpi=200)
 # test accuracy
 function accuracy(model, x, y)
     y_pred = model(x)
-    pred_class = sum(onecold(y) .== onecold(y_pred))
-    acc = pred_class / size(y, 2)
+    pred_class = onecold(y) .== onecold(y_pred)
+    acc = round(100*mean(pred_class), digits=2)
+    println("Accuracy: $acc%")
     return acc
 end
 spike_train_test = spike_train_test |> Flux.gpu
+accuracy(model_flux, train_x', train_y)
 accuracy(model_flux, test_x', test_y)
 # Load data
 # Create model 

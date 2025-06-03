@@ -1,0 +1,5 @@
+[Flux]
+gpu_backend = "CUDA"
+
+[MLDataDevices]
+gpu_backend = "CUDA"
