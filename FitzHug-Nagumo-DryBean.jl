@@ -539,7 +539,3 @@ resize_to_layout!(fig)
 # Display and save
 display(fig)
 save("confusion_matrix_dry_bean_percent.png", fig)
-
-
-
-

@@ -32,10 +32,18 @@ function normalize_rows(x::AbstractMatrix)
     x = x ./ maximum(x, dims=2)
     return x
 end
+# normalize the data
+function standard_scaler(x)
+    # Standardise each column to have mean 0 and stddev 1.
+    μ = mean(x, dims=2)
+    σ = std(x, dims=2)
+    return (x .- μ) ./ σ
+end
 # target vector
 targets = x[17,:]
 # normalize only the features
-x = normalize_rows(x[1:16,:])
+# x = normalize_rows(x[1:16,:])
+x = standard_scaler(x[1:16,:])
 
 
 # first we need to create a weighted, directed graph
@@ -60,7 +68,7 @@ using NetworkDynamics
     e_s, e_d = edges
     dv[1] = v[2]
     # Duffing oscillator
-    omega = ω - rand()*0.05
+    omega = ω - rand()*0.57 # randomize the frequency a bit
     # we are setting the frequency to be constant 
     # omega = ω
     dv[2] = -ω * v[1] - β * v[1]^3 - d*v[2] + f(t)
@@ -88,7 +96,7 @@ N = nv(g_directed) # Number of nodes in the network
 
 const ϵ = 0.05 # global variables that are accessed several times should be declared as constants
 const a = 0.5
-const σ = 0.1
+const σs = 0.1
 const f = 0.1
 const β = 1.0
 
@@ -108,7 +116,6 @@ function plot_sol(u, t_steps, num_sol)
     fig
     GLMakie.save("Duffing_MNIST.png", fig)
 end
-using Plots
 
 using Random
 using Lux
@@ -123,7 +130,7 @@ using OneHotArrays
 
 # network training for the FitzHugh-Nagumo RC last two layers
 function load_data(x, yt; shuffling=true, train_ratio = 1.0)
-    num_samples = 512
+    num_samples = size(x,2)
     classes = unique(yt)
 
     num_train_samples = Int(floor(num_samples * train_ratio))
@@ -134,52 +141,52 @@ function load_data(x, yt; shuffling=true, train_ratio = 1.0)
         shuffled_indices = 1:num_samples
     end
 
-    # shuffle the data
-    train_indices = shuffled_indices[1:num_train_samples]
-    test_indices = shuffled_indices[num_train_samples+1:end]
 
     # convert the data to spike trains
-    spike_train = spikerate.rate(x[:,1:num_samples], 32)
-    println("spike train before reshape: $(size(spike_train))")
-    spike_train_test = spikerate.rate(x[:,num_samples+1:2*num_samples], 32)
+    spike_train = spikerate.rate(x, 32)
+    spike_train_test = spikerate.rate(x,32)
     # convert the spike train to a Float32 array and (time, color, 1)
-    spike_train = Float32.(reshape(spike_train,:,num_samples))
-    spike_train_test = Float32.(reshape(spike_train_test,:,num_samples))
-    
+    spike_train = Float32.(reshape(spike_train,32*16,:))
+    spike_train_test = Float32.(reshape(spike_train_test,32*16,:))
+    # reshape the spike train to (num_samples, time)
+    spike_train = permutedims(spike_train, (2, 1))
+    spike_train_test = permutedims(spike_train_test, (2, 1))
     print("spike_train size:",size(spike_train)) 
-    tspike = collect(1:size(spike_train,1))
+    tspike = collect(1:size(spike_train,2))
     # tspike = LinRange(0.0, 32.0, size(spike_train,2))
     
     nsamples = size(spike_train,1)
     println("Number of samples: $(nsamples)")
     println("tspike: $(size(tspike)), number vertex: $(nv(g_directed))")
-    gs = [Spline1D(tspike, spike_train[:,i], k=2) for i in 1:nv(g_directed)] # do spike train interpolation
+    gs = [Spline1D(tspike, spike_train[i,:], k=2) for i in 1:nsamples] # do spike train interpolation
     print("gs size:",size(gs))
+    N = nv(g_directed) # number of nodes in the network
+    num_batches = num_samples ÷ N
+    uall = Matrix{Float64}(undef, 0, size(spike_train,2)) # initialize the matrix to store the data
+    for i in 1:num_batches
+        # different weights for edges, because the resitivity of the edges are always positive
+        w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
+        #w_ij = ones(ne(g_directed))
+        nosc = nv(g_directed)
 
-    # different weights for edges, because the resitivity of the edges are always positive
-    w_ij = [pdf(Normal(), x) for x in range(-1, 1, length=ne(g_directed))]
-    #w_ij = ones(ne(g_directed))
-    nosc = nv(g_directed)
-    uall = zeros(Float64, 1, N)
-
-        p = (gs, σ *w_ij)
+        p = (gs[(i-1)*N+1:i*N], σs *w_ij)
         #Initial conditions are choosen randomly
         x0 = rand(Float64,2*N)
         # set the problem
-        tspan = (0.0, Float64(size(spike_train,1)))
-        datasize = 512
+        tspan = (0.0, Float64(size(spike_train,2)))
+        datasize = size(spike_train,2)
         tsteps = range(tspan[1], tspan[2], length=datasize)
         prob = ODEProblem(fhn_network!, x0, tspan, p)
         # solve the Duffing network
-        sol = solve(prob, TRBDF2(), saveat=tsteps)
+        sol = solve(prob, Tsit5(), saveat=tsteps)
         # if solution converges, then the solution is saved
         if Symbol(sol.retcode) == :Success
             diff_data = Array(sol)
             t = sol.t
-            u = sol(sol.t)[1:N,:] # (N, T) nodes, time
+            u = sol(sol.t)[1:2:2*N,:] # (N, T) nodes, time
             print("u size:",size(u))
             # add the data together
-            uall = u
+            uall = vcat(uall, u)
 
             print("uall size:",size(uall))
         else
@@ -189,12 +196,14 @@ function load_data(x, yt; shuffling=true, train_ratio = 1.0)
             test_x = []
             test_y = []
         end
-
-    train_x = uall[train_indices,:]
-    train_y = yt[train_indices]
+    end 
+    num_train_samples = Int(floor(num_batches * N * train_ratio))
+    batch_end = num_batches * N
+    train_x = uall[1:num_train_samples ,:]
+    train_y = yt[1:num_train_samples]
     train_y = onehotbatch(train_y, classes)
-    test_x = uall[test_indices,:]
-    test_y = yt[test_indices]
+    test_x = uall[num_train_samples+1:batch_end,:]
+    test_y = yt[num_train_samples+1:batch_end]
     test_y = onehotbatch(test_y, classes)
     return (train_x, train_y), (test_x, test_y)
 end
@@ -284,13 +293,25 @@ ps = ps |> Flux.gpu
 #lossfun, gradfun, fg!, p0 = optfuns(()->loss(model_flux), ps)
 #res = Optim.optimize(Optim.only_fg!(fg!), p0, BFGS(), Optim.Options(iterations = 1000, store_trace=true))
 # Standard ADAM optimizer for the model
-opt = Flux.ADAM(0.001)
+opt = Flux.Adam(0.001)
+opt_state = Flux.setup(opt, model_flux)
 epochs = 300
-data_loader = Flux.Data.DataLoader((train_x', train_y), batchsize=64, shuffle=true)
+data_loader = Flux.DataLoader((train_x', train_y), batchsize=64, shuffle=false)
 for epoch in 1:epochs
-    for (x, y) in data_loader
-        Flux.train!(loss_ce, ps, [(x, y)], opt)
-        println("Epoch $epoch, Loss: $(loss(x, y))")
+    lossv = 0.0
+    for (x,y) in data_loader
+        # compute the loss and gradients
+        ls, grads = Flux.withgradient(model_flux) do model_flux
+            y_pred = model_flux(x)
+            Flux.Losses.crossentropy(y_pred, y)
+        end
+        # update the parameters
+        Flux.update!(opt_state, model_flux, grads[1])
+        lossv += ls / length(data_loader)
+    end
+    # Print the loss every 10 epochs
+    if epoch % 10 == 0
+        println("Epoch $epoch, Loss: $lossv")
     end
 end
 
@@ -319,18 +340,71 @@ train_acc = accuracy(model_flux, train_x', train_y)
 test_acc  = accuracy(model_flux, test_x', test_y)
 println("train accuracy $train_acc")
 println("test accuracy $test_acc")
-conf = confusion_matrix(model_flux, test_x', test_y)
-# plot confusion matrix
-# Plot confusion matrix for test data using GLMakie
-fig = Figure(resolution = (800, 800))
-ax = GLMakie.Axis(fig[1, 1], title = "Confusion Matrix", xlabel ="predicted class", ylabel ="true class", aspect = DataAspect())
-GLMakie.heatmap!(ax, rotr90(conf.mat), colormap = :viridis)
-# Annotate the heatmap with the confusion matrix values
-for i in 1:size(conf.mat, 1)
-    for j in 1:size(conf.mat, 2)
-        GLMakie.text!(ax, j, i, text = string(rotr90(conf.mat)[i,j]), align = (:center, :center), color = :white)
+using CairoMakie
+function confusion_matrix_with_labels(model, x, y, class_names)
+    y_pred = model(x)
+    pred_class = onecold(y_pred)
+    true_class = onecold(y)
+    
+    # Move to CPU memory
+    pred_class = pred_class |> Flux.cpu  
+    predictions = pred_class |> CategoricalArray
+    true_class = true_class |> Flux.cpu
+    targets = true_class |> CategoricalArray
+    
+    # Compute confusion matrix
+    cm = MLJ.ConfusionMatrix()(targets, predictions)
+    
+    # Convert to percentages
+    cm_percent = cm.mat ./ sum(cm.mat, dims=2) .* 100
+    
+    return cm, cm_percent
+end
+
+# Define your class names (adjust according to your dry bean classes)
+class_names = ["SEKER", "BARBUNYA", "BOMBAY", "CALI", "HOROZ", "SIRA", "DERMASON"]
+
+# Get confusion matrix and percentages
+conf, conf_percent = confusion_matrix_with_labels(model_flux, test_x', test_y, class_names)
+
+# Plot confusion matrix with class names and percentages
+fig = Figure(resolution = (1000, 800))
+ax = CairoMakie.Axis(fig[1, 1], 
+    title = "Confusion Matrix (%)", 
+    xlabel = "Predicted Class", 
+    ylabel = "True Class"
+)
+
+# Set custom ticks with class names
+ax.xticks = (1:length(class_names), class_names)
+ax.yticks = (1:length(class_names), reverse(class_names))
+ax.xticklabelrotation = π/4  # Rotate x-axis labels for better readability
+
+# Create heatmap with percentages
+hm = CairoMakie.heatmap!(ax, rotr90(conf_percent), colormap = :blues, colorrange = (0, 100))
+
+# Add colorbar
+Colorbar(fig[1, 2], hm, label = "Percentage (%)")
+
+# Annotate with percentage values
+for i in 1:size(conf_percent, 1)
+    for j in 1:size(conf_percent, 2)
+        percentage_val = rotr90(conf_percent)[i, j]
+        text_color = percentage_val > 50 ? :white : :black  # Use white text for dark cells
+        CairoMakie.text!(ax, j, i, 
+            text = string(round(percentage_val, digits=1), "%"), 
+            align = (:center, :center), 
+            color = text_color,
+            fontsize = 12
+        )
     end
 end
-fig
-GLMakie.save("confusion_matrix.png", fig)
+
+# Adjust layout
+resize_to_layout!(fig)
+# Display and save
+display(fig)
+save("confusion_matrix_dry_bean_percent_duffing.png", fig)
+
+
 plot_sol(Array(train_x), collect(1:size(train_x,2)), 16)
