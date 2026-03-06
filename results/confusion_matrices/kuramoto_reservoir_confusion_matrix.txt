@@ -1,0 +1,21 @@
+Kuramoto Reservoir Digit Classification Results
+==================================================
+Reservoir: 16 Kuramoto oscillators (Watts-Strogatz small-world)
+Coupling K=0.5, natural freq spread ω ~ N(1.0, 0.3)
+Features: 408 dims (sin/cos snapshots + stats + order param + raw pixels)
+Train: 3823 samples | Test: 1797 samples
+Train accuracy: 98.38%
+Test accuracy:  91.82%
+
+Confusion matrix (rows=true, cols=predicted):
+         0    1    2    3    4    5    6    7    8    9
+  0:   177    0    0    0    1    0    0    0    0    0
+  1:     0  165    0    0    5    0    1    0    6    5
+  2:     1    7  157    0    3    0    0    3    6    0
+  3:     3    0    2  153    0    2    0    9    6    8
+  4:     0    0    0    0  180    0    0    0    1    0
+  5:     2    0    0    0    1  174    1    0    0    4
+  6:     5    1    0    0    7    0  168    0    0    0
+  7:     0    0    0    0    3    6    0  164    1    5
+  8:     1   10    0    0    2    2    0    0  148   11
+  9:     4    1    0    1    5    2    0    0    3  164

@@ -1,0 +1,114 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\begin{document}
+
+\begin{longtable}{@{}llll@{}}
+\caption{Parameters and Hyperparameters of the NetworkDynamics Codebase}
+\label{tab:parameters} \\
+
+\toprule
+\textbf{Symbol} & \textbf{Value(s)} & \textbf{Description} & \textbf{Model / File} \\
+\midrule
+\endfirsthead
+
+\multicolumn{4}{c}{\tablename\ \thetable{} -- continued} \\
+\toprule
+\textbf{Symbol} & \textbf{Value(s)} & \textbf{Description} & \textbf{Model / File} \\
+\midrule
+\endhead
+
+\midrule
+\multicolumn{4}{r}{\textit{Continued on next page}} \\
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+% ── FitzHugh–Nagumo dynamics ────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{FitzHugh--Nagumo oscillator dynamics}} \\
+\midrule
+$\epsilon$        & $0.05$                    & Time-scale separation (fast/slow)           & FitzHug-Nagumo \\
+$a$               & $0.5$                     & Threshold / excitation parameter            & FitzHug-Nagumo \\
+$\sigma$          & $0.5,\;0.06,\;0.72$       & Diffusive coupling / noise strength         & FitzHug-Nagumo \\
+$\sigma_s$        & $0.006,\;0.1$             & Spike-rate scaling constant                 & FitzHug-Nagumo \\
+$T_{\text{span}}$ & $(0,\;300)$               & ODE integration time window                 & FitzHug-Nagumo \\
+\addlinespace
+
+% ── Duffing oscillator ────────────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{Duffing oscillator dynamics}} \\
+\midrule
+$d$               & $0.1$                     & Linear damping coefficient                  & Duffing \\
+$\beta$           & $1.0,\;20.0$              & Nonlinear (cubic) stiffness coefficient     & Duffing \\
+$\omega$          & $1.0$                     & Intrinsic oscillation frequency             & Duffing \\
+$f$               & $0.1$                     & External forcing amplitude                  & Duffing \\
+$T_{\text{span}}$ & $(0,\;8),\;(0,\;32)$      & ODE integration time window                 & Duffing \\
+\addlinespace
+
+% ── Kuramoto oscillator ───────────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{Kuramoto oscillator dynamics}} \\
+\midrule
+$\omega_0$        & $1.0$                     & Intrinsic natural frequency                 & Kuramoto / Wang-Kuramoto \\
+$K$               & $3.0$--$6.0$              & Global coupling strength                    & Kuramoto / Diffusion \\
+$h$               & $0.5$                     & Edge coupling weight                        & Kuramoto-MNIST \\
+$\sigma$          & $0.06$                    & Noise / stochastic coupling strength        & Kuramoto-MNIST \\
+$\beta$           & $10.0$                    & Forcing modulation depth                    & Kuramoto-MNIST \\
+$T_{\text{forc}}$ & $2000.0,\;400.0$          & Forcing signal period                       & Kuramoto variants \\
+$\epsilon$        & $100$                     & Main vertex coupling coefficient            & Kuramoto-Izhikevich \\
+$\epsilon_c$      & $0.1$                     & Edge coupling coefficient                   & Kuramoto-Izhikevich \\
+$T_{\text{span}}$ & $(0,\;500),\;(0,\;2500)$  & ODE integration time window                 & Kuramoto variants \\
+\addlinespace
+
+% ── Network topology ──────────────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{Network topology \& graph construction}} \\
+\midrule
+$N$               & $5$ (default)             & Number of nodes -- complete graph           & graph\_utils \\
+$N,\,M$           & $8,\;10$ (default)        & Grid rows $\times$ columns                  & graph\_utils \\
+$k$               & $4$                       & Nearest-neighbour degree (Watts--Strogatz)  & graph\_utils \\
+$p_{\text{rew}}$  & $0.1$                     & Rewiring probability (Watts--Strogatz)      & graph\_utils \\
+$p_{\text{ER}}$   & $0.05$                    & Edge probability (Erd\H{o}s--R\'{e}nyi)     & graph\_utils \\
+$m$               & $3$                       & Edges added per new node (Barab\'{a}si--Albert) & graph\_utils \\
+$N$               & $90$                      & Brain network nodes (DTI connectome)        & network\_topology \\
+$N$               & $9$                       & Heterogeneous test network                  & heterogeneous\_network \\
+$N$               & $64\;(8{\times}8)$        & Grid oscillator array                       & Kuramoto-Izhikevich \\
+$N$               & $20$                      & ANN swing network nodes                     & ANN\_swingnetwork \\
+$N$               & $512$--$1024$             & Reservoir size (Watts--Strogatz, classif.)  & MNIST / DryBean models \\
+\addlinespace
+
+% ── ODE solver settings ───────────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{ODE solver settings}} \\
+\midrule
+$\Delta t$        & $0.01,\;0.1$              & Fixed step size for explicit integrators    & Various \\
+\texttt{saveat}   & uniform grid              & Time points at which solution is saved      & Various \\
+$N_{\text{steps}}$& $400,\;2048$              & Number of saved time steps (datasize)       & Classification models \\
+\addlinespace
+
+% ── Training & optimisation ───────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{Training \& optimisation hyperparameters}} \\
+\midrule
+$\eta$            & $10^{-3}$                 & Adam optimiser learning rate                & All classification models \\
+$B$               & $256$                     & Mini-batch size                             & All classification models \\
+$E$               & $100$--$5000$             & Number of training epochs                   & Varies by model \\
+$G$               & $4,\;8$                   & Group size for multiple-shooting loss       & Wang-Kuramoto, Diffusion \\
+$\lambda_c$       & $300$                     & Continuity penalty weight (multiple-shoot.) & Wang-Kuramoto \\
+$N_{\text{traj}}$ & $4$                       & Parallel trajectories per batch             & Wang-Kuramoto-gpu \\
+\addlinespace
+
+% ── Data loading & encoding ───────────────────────────────────────────────────
+\multicolumn{4}{l}{\textit{Data loading \& spike-rate encoding}} \\
+\midrule
+\texttt{train\_split} & $0.8$                 & Training / validation split ratio           & mnist, drybean \\
+$B_{\text{load}}$ & $64$                      & DataLoader batch size                       & mnist \\
+$r_s$             & $8,\;16,\;32$             & Spike-rate temporal resolution factor       & Classification models \\
+\texttt{gain}     & $1.0$                     & Spike-rate gain (linear scaling)            & spikerate \\
+\texttt{offset}   & $0.0$                     & Spike-rate baseline offset                  & spikerate \\
+$N_{\text{data}}$ & $64$--$1797$              & Dataset size (subset of MNIST / DryBean)    & Classification models \\
+
+\end{longtable}
+
+\end{document}

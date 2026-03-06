@@ -1,3 +1,6 @@
+[CairoMakie]
+precompile_workload = false
+
 [Flux]
 gpu_backend = "CUDA"
 
