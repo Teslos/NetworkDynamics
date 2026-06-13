@@ -1,0 +1,27 @@
+% Requires \usepackage{booktabs} (and \usepackage[table]{xcolor} is optional).
+% Digit-classification results: scikit-learn load_digits == UCI optdigits.tes
+% (1797 samples, 64 features, 10 classes), 80/20 stratified split (1437/360).
+\begin{table}[t]
+  \centering
+  \caption{Digit classification (sklearn \texttt{load\_digits}, $1797\times64$,
+    10 classes; 80/20 stratified split). Baselines and the tanh-ESN are reported
+    as mean\,$\pm$\,std over 10 seeds; the FHN reservoir entries are single runs
+    of a faithful reimplementation (the original script is unrunnable under the
+    installed NetworkDynamics~0.9.7). Readout features are the 64 raw pixels for
+    the linear/MLP baselines, and the reservoir node trajectories otherwise.}
+  \label{tab:digits_results}
+  \begin{tabular}{lccc}
+    \toprule
+    Method & Accuracy & Macro-F1 & Seeds \\
+    \midrule
+    Logistic regression (raw pixels) & $0.959 \pm 0.012$ & $0.959 \pm 0.012$ & 10 \\
+    Linear SVM (raw pixels)          & $0.952 \pm 0.011$ & $0.952 \pm 0.011$ & 10 \\
+    MLP, 1 hidden layer (raw pixels) & $\mathbf{0.976 \pm 0.009}$ & $\mathbf{0.976 \pm 0.009}$ & 10 \\
+    tanh-ESN (500 units)             & $0.833 \pm 0.023$ & $0.829 \pm 0.025$ & 10 \\
+    \midrule
+    FHN reservoir, $N=1797$ (this work) & $0.936$ & $0.936$ & 1 \\
+    FHN reservoir, $N=300$ (this work)  & $0.850$ & $0.851$ & 1 \\
+    FHN reservoir (paper, as reported)  & $0.88$  & ---     & 1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
