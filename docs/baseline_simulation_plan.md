@@ -104,17 +104,18 @@ numbers or a reframing.
   replaces "very good" with an honest short-horizon number and gives the
   reservoir model a baseline to be compared against.
 
-### §1.4 / §6 Resonance / separability metric  *(planned — needs reservoir states)*
-- **Experiment B7.** On the saved reservoir state matrix (the oscillator
-  trajectories the readout sees), compute (a) node-energy/amplitude separation
-  between the resonant and non-resonant node sets and (b) a linear-probe
-  accuracy and silhouette score on the reservoir state vs. class label.
-- **How:** export the reservoir state matrix from the existing FHN/Kuramoto/
-  Duffing RC scripts (`src/classification/*`), then reuse the metric helpers in
-  `baseline_utils.jl`. A linear probe is just `train_logreg` on the reservoir
-  state; silhouette is a short addition.
-- **Resolves:** §1.4 — turns the "local chaotic resonance" narrative into a
-  measured observable.
+### §1.4 / §6 Resonance / separability metric  *(implemented)*
+- **Experiment B7.** `scripts/run_reservoir_diagnostics.jl` computes silhouette
+  score, Fisher discriminant ratio, and linear-probe accuracy on raw pixels vs
+  FHN reservoir states vs ESN states (`silhouette_score`/`fisher_ratio` in
+  `baseline_utils.jl`, reservoir from `src/baselines/fhn_reservoir.jl`).
+- **Finding:** raw pixels are *more* linearly separable (silhouette 0.11,
+  probe 0.96) than either reservoir's states (FHN: silhouette 0.04, probe 0.72;
+  ESN: silhouette −0.15, probe 0.84). The reservoir transform does **not**
+  improve separability, so the "local chaotic resonance improves
+  classification" claim is unsupported as stated.
+- **Resolves:** §1.4 — the mechanism is now measured, and the measurement
+  contradicts the narrative.
 
 ### §1.2 / §6 Learned-coupling (UDE) vs. fixed reservoir ablation  *(planned)*
 - **Experiment B8.** Run the paper's UDE/learned-coupling method (the XOR
@@ -124,13 +125,19 @@ numbers or a reframing.
   experiment that decides whether the paper is "one method" or "two
   contributions," and is flagged as the top structural fix.
 
-### §6 Reservoir diagnostics (echo-state property, edge of chaos)  *(planned)*
-- **Experiment B9.** Spectral-radius sweep of the reservoir: verify the
-  echo-state property and plot accuracy vs. spectral radius / vs. σ with error
-  bars (≥10 seeds), promoting the supplement's σ-sweep to the main text. The
-  ESN code already exposes `spectral_radius`; sweep it and reuse B2's seed loop.
-- **Resolves:** §6 (reservoir diagnostics) and substantiates the "edge of
-  chaos" claim with statistics.
+### §6 Reservoir diagnostics (echo-state property, edge of chaos)  *(implemented)*
+- **Experiment B9.** `scripts/run_reservoir_diagnostics.jl` sweeps the FHN
+  coupling strength σ and the ESN spectral radius ρ over seeds, reporting test
+  accuracy (with error bars) and an echo-state / edge-of-chaos probe: FHN uses a
+  two-initial-condition final-state divergence, ESN uses a Benettin local
+  Lyapunov exponent (λ<0 ⇒ ESP holds; λ=0 ⇒ edge of chaos). Figure:
+  `results/figures/edge_of_chaos.png`.
+- **Finding:** the ESN shows the textbook edge of chaos (accuracy rises as λ→0).
+  The **FHN reservoir's ESP divergence is ≈0 for all σ>0** — it is strongly
+  contracting/synchronized, *not* operating near an edge of chaos; accuracy
+  peaks around σ≈0.72 from richer mixing, not from criticality.
+- **Resolves:** §6 (reservoir diagnostics) and tests the "edge of chaos" claim
+  with statistics — for the FHN reservoir the claim is not borne out.
 
 ---
 

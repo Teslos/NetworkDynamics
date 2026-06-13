@@ -23,7 +23,7 @@ using LinearAlgebra
 export load_digits, load_drybean, standardize_fit, standardize_apply,
        stratified_split, stratified_kfold, onehot, accuracy, confusion_matrix,
        precision_recall_f1, macro_f1, weighted_f1, classification_report,
-       wilcoxon_signed_rank, summarize
+       wilcoxon_signed_rank, summarize, silhouette_score, fisher_ratio
 
 # --------------------------------------------------------------- data loading
 
@@ -139,6 +139,58 @@ function classification_report(ypred, ytrue, classes)
     return (accuracy=accuracy(ypred, ytrue), macro_f1=mean(m.f1),
             weighted_f1=sum(m.f1 .* m.support) / sum(m.support),
             per_class=m, confusion=C, classes=classes)
+end
+
+# --------------------------------------------------------- separability (B7)
+
+# Euclidean pairwise distance matrix for columns-as-samples X (features, N).
+function _pairwise_dist(X)
+    G = X' * X
+    sq = diag(G)
+    D2 = sq .+ sq' .- 2 .* G
+    return sqrt.(max.(D2, 0.0))
+end
+
+"""
+Mean silhouette score of samples X (features, N) under `labels`, in [-1, 1].
+Higher = classes are more separated in this feature space. Compare reservoir
+states vs raw inputs to quantify whether the reservoir improves separability.
+"""
+function silhouette_score(X, labels)
+    N = size(X, 2)
+    D = _pairwise_dist(X)
+    classes = unique(labels)
+    s = zeros(N)
+    for i in 1:N
+        same = filter(!=(i), findall(==(labels[i]), labels))
+        a = isempty(same) ? 0.0 : mean(D[i, same])
+        b = Inf
+        for c in classes
+            c == labels[i] && continue
+            b = min(b, mean(D[i, findall(==(c), labels)]))
+        end
+        denom = max(a, b)
+        s[i] = denom == 0 ? 0.0 : (b - a) / denom
+    end
+    return mean(s)
+end
+
+"""
+Fisher discriminant ratio tr(S_between)/tr(S_within) for X (features, N).
+Higher = larger between-class spread relative to within-class spread, i.e. more
+linearly separable.
+"""
+function fisher_ratio(X, labels)
+    mu = vec(mean(X, dims=2))
+    Sw = 0.0; Sb = 0.0
+    for c in unique(labels)
+        idx = findall(==(c), labels)
+        Xc = @view X[:, idx]
+        muc = vec(mean(Xc, dims=2))
+        Sw += sum(abs2, Xc .- muc)
+        Sb += length(idx) * sum(abs2, muc .- mu)
+    end
+    return Sw == 0 ? Inf : Sb / Sw
 end
 
 # ------------------------------------------------------------------ stats
