@@ -32,7 +32,7 @@ function _coupling(N, sigma, rng)
     return W, vec(sum(W, dims=2))
 end
 
-function _solve(S, W, rowsum, z0)
+function _solve(S, W, rowsum, z0; a=A, eps=EPS, r0=R0)
     N, T = size(S)
     gbuf = zeros(N)
     function drive!(out, t)
@@ -50,7 +50,7 @@ function _solve(S, W, rowsum, z0)
         g = drive!(gbuf, t)
         coupling = W * u .- rowsum .* u
         @. du = g + u - u^3 / 3 - v + coupling
-        @. dv = (g * R0 + u - A) * EPS
+        @. dv = (g * r0 + u - a) * eps
         return nothing
     end
     prob = ODEProblem(rhs!, z0, (0.0, Float64(T)))
@@ -58,12 +58,18 @@ function _solve(S, W, rowsum, z0)
     return Array(sol)   # (N, T) node u-trajectories
 end
 
-"Reservoir node trajectories U (N, T) for drive S and coupling strength sigma."
-function fhn_states(S, sigma; seed=1)
+# Reservoir node trajectories U (N, T) for drive S and coupling strength sigma.
+# `a` is the FHN excitability threshold: |a|<1 = self-oscillating limit cycle
+# (the manuscript's a=0.5), |a|>1 = excitable/quiescent (needed for input-driven
+# avalanche propagation, Beattie-style criticality). `mask` optionally restricts
+# the complete-graph coupling to a given adjacency (e.g. Watts-Strogatz).
+function fhn_states(S, sigma; seed=1, a=A, eps=EPS, mask=nothing)
     rng = Xoshiro(seed)
-    W, rowsum = _coupling(size(S, 1), sigma, rng)
+    W, _ = _coupling(size(S, 1), sigma, rng)
+    mask !== nothing && (W = W .* mask)
+    rowsum = vec(sum(W, dims=2))
     z0 = rand(rng, 2 * size(S, 1))
-    return _solve(S, W, rowsum, z0)
+    return _solve(S, W, rowsum, z0; a=a, eps=eps)
 end
 
 """

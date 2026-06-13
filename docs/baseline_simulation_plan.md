@@ -139,6 +139,27 @@ numbers or a reframing.
 - **Resolves:** §6 (reservoir diagnostics) and tests the "edge of chaos" claim
   with statistics — for the FHN reservoir the claim is not borne out.
 
+### Avalanche criticality (Beattie-style)  *(implemented)*
+- **Experiment B10.** After reading the source reference
+  (Al Beattie et al. 2024, *Communications Physics*, in `docs/`), it became
+  clear that the relevant notion of criticality there is **avalanche/branching
+  criticality** (power-law avalanche size/duration, branching ratio ≈ 1),
+  *not* the dynamical edge of chaos — the paper explicitly states its network
+  has no chaotic regime. `scripts/run_avalanche_criticality.jl` +
+  `src/baselines/avalanche.jl` implement this: an excitable FHN network (a>1)
+  with input to a subset of nodes, sweeping coupling σ and measuring branching
+  ratio, power-law exponents, and mean activity.
+- **Finding:** the FHN reservoir *does* show avalanche criticality. The
+  branching ratio rises through 1 between σ≈0.003 and 0.01, and near the
+  crossing the exponents approach mean-field values (τ≈1.6, α≈1.8). The
+  critical coupling (~0.004) is far weaker than the classification operating
+  point, which sits in the supercritical/synchronized regime.
+- **Reconciliation:** the earlier "not at the edge of chaos" result (B9) and
+  this "is at avalanche criticality" result are *both correct and consistent* —
+  they measure different things, and Beattie et al. use the latter. The B9
+  conclusion therefore does not contradict the source paper; it matches the
+  paper's own disclaimer that the network is not chaotic.
+
 ---
 
 ## Execution order (matches the critique's priority list)
