@@ -160,6 +160,23 @@ numbers or a reframing.
   conclusion therefore does not contradict the source paper; it matches the
   paper's own disclaimer that the network is not chaotic.
 
+### Criticality vs accuracy (capstone)  *(implemented)*
+- **Experiment B11.** `scripts/run_criticality_vs_accuracy.jl` tests Beattie's
+  core claim on ONE reservoir: an excitable FHN network (100 nodes, dry-bean
+  features as input currents to 16 nodes), sweeping coupling σ and measuring on
+  the same reservoir both the **classification accuracy** (full-state readout)
+  and the **avalanche branching ratio** (a separate Poisson probe), plus a
+  readout-shrinkage curve using random node subsets.
+- **Finding:** accuracy is 0.86–0.905 across the whole coupling range, best
+  (0.905) at criticality (σ=0.030, branching≈1.09) — a weak peak, matching
+  Beattie's ~90.75% level and their robustness-without-tuning claim. However,
+  the readout-shrinkage robustness is greatest for the **supercritical**
+  (synchronized) reservoir, not the critical one, so Beattie's specific
+  "critical ⇒ most shrinkage-robust" claim is not cleanly reproduced here.
+- **Caveats:** one reservoir realization per σ, complete-graph (not
+  Watts-Strogatz) coupling, 420 samples, naive branching estimator — suggestive
+  same-network evidence, not a definitive replication.
+
 ---
 
 ## Execution order (matches the critique's priority list)
