@@ -117,13 +117,23 @@ numbers or a reframing.
 - **Resolves:** §1.4 — the mechanism is now measured, and the measurement
   contradicts the narrative.
 
-### §1.2 / §6 Learned-coupling (UDE) vs. fixed reservoir ablation  *(planned)*
-- **Experiment B8.** Run the paper's UDE/learned-coupling method (the XOR
-  contribution, `notebooks/EP-XY-*` / the UDE formulation) on digits and dry
-  bean, and compare head-to-head with the fixed reservoir on the *same* split.
-- **Resolves:** §1.2 (contribution/identity conflation) — this is the
-  experiment that decides whether the paper is "one method" or "two
-  contributions," and is flagged as the top structural fix.
+### §1.2 / §6 Learned-coupling (UDE) vs. fixed reservoir ablation  *(implemented)*
+- **Experiment B8.** `scripts/run_ude_ablation.jl` runs a controlled ablation on
+  dry bean: a discrete-time FHN reservoir (fully differentiable stand-in for the
+  continuous UDE) with an identical architecture and training loop, the only
+  difference being whether the coupling matrix W is frozen (reservoir computing)
+  or trained end-to-end with the readout (UDE-style learned coupling). Same
+  initialization, split, and optimizer; 8 seeds; paired Wilcoxon.
+- **Finding:** learned coupling (0.889 ± 0.026) is **not significantly better**
+  than the fixed reservoir (0.881 ± 0.033), paired Wilcoxon p≈0.45, and **both
+  trail plain logistic regression on the raw features** (0.904 ± 0.023). So the
+  signature "learned coupling" contribution does not justify itself on this
+  classification task, and neither variant beats a one-line baseline.
+- **Resolves:** §1.2 (contribution/identity conflation) — the learned-coupling
+  idea and the fixed-reservoir headline are statistically equivalent here, so
+  they should be presented as separate contributions and neither framed as
+  surpassing baselines. Caveat: discrete-time linear-W stand-in, N=30, dry-bean
+  subset; a continuous neural-network coupling with more capacity could differ.
 
 ### §6 Reservoir diagnostics (echo-state property, edge of chaos)  *(implemented)*
 - **Experiment B9.** `scripts/run_reservoir_diagnostics.jl` sweeps the FHN
