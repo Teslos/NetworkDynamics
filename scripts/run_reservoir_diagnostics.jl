@@ -125,8 +125,9 @@ ysil = y_all[sidx]
 
 # raw pixels
 Xpix_s = standardize_apply(Xpix_all[:, sidx], standardize_fit(Xpix_all[:, sidx]))
-# ESN states (operating point rho=0.9)
-esn_op = build_esn(NRESN, 1; spectral_radius=0.9, rng=Xoshiro(1))
+# ESN states (operating point: best-accuracy rho in the swept grid)
+const RHO_OP = RHOS[argmax(mean(esn_acc[r]) for r in RHOS)]
+esn_op = build_esn(NRESN, 1; spectral_radius=RHO_OP, rng=Xoshiro(1))
 Fesn = esn_features(esn_op, standardize_apply(Xpix_all[:, sidx], standardize_fit(Xpix_all[:, sidx])))
 Fesn_s = standardize_apply(Fesn, standardize_fit(Fesn))
 # FHN states at operating sigma=0.72 (use the NFHN subset that was solved)
@@ -138,7 +139,7 @@ sep = Dict{String,NamedTuple}()
 sep["raw pixels"]  = (sil=silhouette_score(Xpix_s, ysil), fish=fisher_ratio(Xpix_s, ysil),
                       probe=mean(probe_accuracy(Xpix_all, y_all; seed=s) for s in 1:SEEDS))
 sep["ESN states"]  = (sil=silhouette_score(Fesn_s, ysil), fish=fisher_ratio(Fesn_s, ysil),
-                      probe=mean(esn_acc[0.9]))
+                      probe=mean(esn_acc[RHO_OP]))
 sep["FHN states"]  = (sil=silhouette_score(Ffhn_s, y_fhn), fish=fisher_ratio(Ffhn_s, y_fhn),
                       probe=mean(fhn_acc[0.72]))
 
