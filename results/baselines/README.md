@@ -101,6 +101,17 @@ Dry bean (13611×16, 7 classes, repeated stratified 5-fold): logreg 0.923, SVM
 7.0 ± 1.1 Lyapunov times, NRMSE 1.31. A LaTeX summary table for digits is in
 `digits_results_table.tex`.
 
+### Continuous-time reservoir baseline (LPCTESN) — `lpctesn_lorenz.md`
+
+A minimal linear-projection continuous-time echo state network (Anantharaman
+et al. 2021), added as a continuous-time counterpart to the discrete ESN Lorenz
+baseline. It forecasts Lorenz stably (NRMSE ≈ 1.50, comparable to the discrete
+ESN's 1.32) but with a **shorter valid horizon — 1.14 ± 0.41 Lyapunov times vs
+the discrete ESN's 4.70 ± 1.21** (8 seeds, matched reservoir size). This is
+consistent with CTESN being designed for *parametric surrogates of stiff ODEs*,
+not autonomous chaotic forecasting — so it is a more faithful continuous-time RC
+baseline but not an improvement on this task. Run `scripts/run_lpctesn_lorenz.jl`.
+
 ### Mechanism: separability (B7) — `reservoir_diagnostics.md`
 
 On digits, raw pixels are **more** linearly separable than the reservoir states:
@@ -187,3 +198,4 @@ repository, which contains all of the above.
 | `avalanche_criticality.md` | B10 avalanche statistics vs coupling |
 | `criticality_vs_accuracy.md` | B11 criticality + accuracy + readout shrinkage |
 | `ude_ablation.md` | B8 learned-coupling vs fixed-reservoir ablation |
+| `lpctesn_lorenz.md` | continuous-time LPCTESN vs discrete ESN on Lorenz |
