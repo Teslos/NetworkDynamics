@@ -112,6 +112,11 @@ consistent with CTESN being designed for *parametric surrogates of stiff ODEs*,
 not autonomous chaotic forecasting — so it is a more faithful continuous-time RC
 baseline but not an improvement on this task. Run `scripts/run_lpctesn_lorenz.jl`.
 
+A long autonomous rollout (`scripts/run_lpctesn_lorenz_map.jl`) shows the LPCTESN
+settles onto a two-lobe Lorenz-like butterfly and roughly follows the Lorenz
+return map (successive z-maxima, zₙ vs zₙ₊₁), but smears out its sharp cusp — so
+it captures the attractor *climate* only approximately, not precisely.
+
 ### Mechanism: separability (B7) — `reservoir_diagnostics.md`
 
 On digits, raw pixels are **more** linearly separable than the reservoir states:
