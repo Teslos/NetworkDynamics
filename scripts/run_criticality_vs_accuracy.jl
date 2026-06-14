@@ -32,10 +32,16 @@ const T       = QUICK ? 400 : 700
 const INSCALE = 1.2                 # input current scale (feature -> drive)
 const THRESH  = 1.0
 const BIN     = 2
-const NPER    = QUICK ? 20 : 60     # samples per class
-const SEED    = 1
-const SIGMAS  = QUICK ? [0.003, 0.03, 0.3] : [0.001, 0.003, 0.01, 0.03, 0.1, 0.3]
+const NPER    = QUICK ? 15 : 40     # samples per class
+const RES_SEEDS = QUICK ? 2 : 3     # reservoir realizations (fresh WS graph each)
+const TOPO    = :ws                 # :ws (Watts-Strogatz, Beattie) or :complete
+const WS_K    = 10                  # WS mean degree
+const WS_BETA = 0.3                 # WS rewiring probability
+# sparse WS coupling (degree ~10) needs ~10x larger sigma than the complete graph
+const SIGMAS  = QUICK ? [0.03, 0.3, 3.0] : [0.01, 0.03, 0.1, 0.3, 1.0, 3.0]
 const SHRINK  = [N, 50, 20]         # readout sizes for the shrinkage test
+
+res_mask(seed) = TOPO == :ws ? ws_adjacency(N, WS_K, WS_BETA; rng=Xoshiro(2000 + seed)) : nothing
 
 const OUTDIR = joinpath(@__DIR__, "..", "results", "baselines")
 const FIGDIR = joinpath(@__DIR__, "..", "results", "figures")
@@ -54,9 +60,9 @@ Xraw, y = load_drybean()
 let lo = vec(minimum(Xraw, dims=2)), hi = vec(maximum(Xraw, dims=2))
     global Xn = (Xraw .- lo) ./ max.(hi .- lo, 1e-9)
 end
-# stratified subsample to NPER per class
+# stratified subsample to NPER per class (fixed across reservoir realizations)
 let idx = Int[]
-    rng = Xoshiro(SEED)
+    rng = Xoshiro(1)
     for c in unique(y)
         ci = shuffle(rng, findall(==(c), y))
         append!(idx, ci[1:min(NPER, length(ci))])
@@ -79,16 +85,14 @@ function sample_drive(s)
     return S
 end
 
-# ---- per-sigma: run all samples, collect readout features + criticality ----
-# readout features per node: [mean(u), spike count]; stored per readout node so
-# the shrinkage test can use a subset.
-# Classification features: per readout node [mean(u), std(u), spike count],
-# stored in READOUT_ORDER so the shrinkage test can use the first k nodes.
-# Deterministic input -> the reservoir response is a clean function of the sample.
-function classification_features(sigma)
-    feat = zeros(3, N, nsamp)            # (stat, node, sample), natural node order
+# Classification features for a given reservoir realization (rseed -> coupling W
+# and WS graph). Per node: [mean(u), std(u), spike count] over the run. Natural
+# node order; deterministic input so the response is a clean function of input.
+function classification_features(sigma, rseed)
+    mask = res_mask(rseed)
+    feat = zeros(3, N, nsamp)
     for s in 1:nsamp
-        U = fhn_states(sample_drive(s), sigma; seed=SEED, a=AEXC)
+        U = fhn_states(sample_drive(s), sigma; seed=rseed, a=AEXC, mask=mask)
         sp_all = detect_spikes(U; thresh=THRESH)
         feat[1, :, s] = vec(mean(U, dims=2))
         feat[2, :, s] = vec(std(U, dims=2))
@@ -97,16 +101,14 @@ function classification_features(sigma)
     return feat
 end
 
-# Criticality probe on the SAME reservoir (same seed -> same coupling W): drive
-# the input nodes with sparse Poisson input and measure avalanche statistics.
-# This is the proper criticality measurement (clean avalanche structure), as
-# opposed to inferring it from the constant-input classification runs.
+# Criticality probe on the SAME reservoir realization: sparse Poisson drive,
+# measure avalanche statistics (clean branching estimate).
 const TPROBE = QUICK ? 1500 : 4000
-function criticality_probe(sigma)
+function criticality_probe(sigma, rseed)
     rng = Xoshiro(2024)
     Sp = zeros(N, TPROBE)
     Sp[INPUT_NODES, :] .= Float64.(rand(rng, NIN, TPROBE) .< 0.05)
-    U = fhn_states(Sp, sigma; seed=SEED, a=AEXC)
+    U = fhn_states(Sp, sigma; seed=rseed, a=AEXC, mask=res_mask(rseed))
     act = population_activity(detect_spikes(U; thresh=THRESH); bin=BIN)
     sizes, _ = avalanche_stats(act)
     return (branch=branching_ratio(act), tau=powerlaw_mle(sizes; xmin=1), activity=mean(act))
@@ -133,38 +135,49 @@ function shrinkage_accuracy(feat, k; ndraws=(QUICK ? 2 : 4))
     return mean(classify(feat, shuffle(Xoshiro(100 + d), 1:N)[1:k]) for d in 1:ndraws)
 end
 
-println("\nSweeping coupling sigma...")
+println("\nSweeping coupling sigma over $(RES_SEEDS) reservoir realizations ($TOPO topology)...")
 res = Dict{Float64,Any}()
+feats = Dict{Tuple{Float64,Int},Array{Float64,3}}()   # (sigma, rseed) -> features, for shrinkage
 for sigma in SIGMAS
-    feat = classification_features(sigma)
-    crit = criticality_probe(sigma)
-    acc = classify(feat, 1:N)
-    res[sigma] = (feat=feat, branch=crit.branch, tau=crit.tau, activity=crit.activity, acc=acc)
-    @printf("  sigma=%.3f  branch=%.2f  tau=%.2f  activity=%.2f  accuracy=%.3f\n",
-            sigma, crit.branch, crit.tau, crit.activity, acc)
+    accs = Float64[]; branches = Float64[]; taus = Float64[]; acts = Float64[]
+    for rseed in 1:RES_SEEDS
+        feat = classification_features(sigma, rseed)
+        crit = criticality_probe(sigma, rseed)
+        feats[(sigma, rseed)] = feat
+        push!(accs, classify(feat, 1:N)); push!(branches, crit.branch)
+        push!(taus, crit.tau); push!(acts, crit.activity)
+    end
+    res[sigma] = (acc=mean(accs), acc_std=(length(accs) > 1 ? std(accs) : 0.0),
+                  branch=mean(branches), branch_std=(length(branches) > 1 ? std(branches) : 0.0),
+                  tau=mean(filter(!isnan, taus)), activity=mean(acts))
+    r = res[sigma]
+    @printf("  sigma=%.3f  branch=%.2f±%.2f  tau=%.2f  acc=%.3f±%.3f\n",
+            sigma, r.branch, r.branch_std, r.tau, r.acc, r.acc_std)
 end
 
 # ---- readout shrinkage for representative sub/critical/super sigma ----
+# averaged over reservoir realizations and random node subsets
 crit_sigma = SIGMAS[argmin(abs.([res[s].branch - 1 for s in SIGMAS]))]
 sub_sigma  = SIGMAS[1]
 sup_sigma  = SIGMAS[end]
-shrink_acc = Dict(s => [shrinkage_accuracy(res[s].feat, k) for k in SHRINK]
+shrink_acc = Dict(s => [mean(shrinkage_accuracy(feats[(s, rs)], k) for rs in 1:RES_SEEDS) for k in SHRINK]
                   for s in (sub_sigma, crit_sigma, sup_sigma))
 
 # --------------------------------------------------------------- report
 open(joinpath(OUTDIR, "criticality_vs_accuracy.md"), "w") do io
     println(io, "# Criticality vs accuracy (FHN reservoir, dry bean)\n")
     println(io, "Generated by `scripts/run_criticality_vs_accuracy.jl` ", QUICK ? "(quick)" : "", ".")
-    println(io, "N=$N excitable FHN (a=$AEXC), $NIN input nodes, full-state readout, ",
-                "$nsamp samples, T=$T.\n")
+    println(io, "N=$N excitable FHN (a=$AEXC), $TOPO topology (k=$WS_K, β=$WS_BETA), ",
+                "$NIN input nodes, full-state readout, $nsamp samples, T=$T, ",
+                "$(RES_SEEDS) reservoir realizations (mean ± std).\n")
     println(io, "Tests Beattie et al.: does accuracy peak at avalanche criticality ",
                 "(branching ratio ≈ 1), and is the critical reservoir robust to readout shrinkage?\n")
     println(io, "| σ | branching ratio | τ (size) | mean activity | accuracy |")
     println(io, "|---|---|---|---|---|")
     for s in SIGMAS
         r = res[s]
-        println(io, @sprintf("| %.3f | %.2f | %.2f | %.2f | %.3f |",
-                             s, r.branch, r.tau, r.activity, r.acc))
+        println(io, @sprintf("| %.3f | %.2f ± %.2f | %.2f | %.2f | %.3f ± %.3f |",
+                             s, r.branch, r.branch_std, r.tau, r.activity, r.acc, r.acc_std))
     end
     println(io, @sprintf("\nClosest to criticality (branching≈1): σ=%.3f.\n", crit_sigma))
     println(io, "## Readout shrinkage (accuracy vs # readout nodes)\n")
@@ -183,11 +196,13 @@ Label(fig[0, 1:3], "Criticality vs accuracy (FHN reservoir, dry bean)", fontsize
 
 ax1 = Axis(fig[1, 1], xscale=log10, xlabel="coupling σ", ylabel="test accuracy",
            title="accuracy vs coupling")
+errorbars!(ax1, SIGMAS, [res[s].acc for s in SIGMAS], [res[s].acc_std for s in SIGMAS], color=:gray)
 scatterlines!(ax1, SIGMAS, [res[s].acc for s in SIGMAS], color=:crimson)
 vlines!(ax1, [crit_sigma], color=:gray, linestyle=:dash)
 
 ax2 = Axis(fig[1, 2], xscale=log10, xlabel="coupling σ", ylabel="branching ratio",
            title="criticality vs coupling")
+errorbars!(ax2, SIGMAS, [res[s].branch for s in SIGMAS], [res[s].branch_std for s in SIGMAS], color=:gray)
 scatterlines!(ax2, SIGMAS, [res[s].branch for s in SIGMAS], color=:black)
 hlines!(ax2, [1.0], color=:crimson, linestyle=:dash)
 vlines!(ax2, [crit_sigma], color=:gray, linestyle=:dash)

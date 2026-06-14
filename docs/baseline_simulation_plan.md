@@ -172,20 +172,24 @@ numbers or a reframing.
 
 ### Criticality vs accuracy (capstone)  *(implemented)*
 - **Experiment B11.** `scripts/run_criticality_vs_accuracy.jl` tests Beattie's
-  core claim on ONE reservoir: an excitable FHN network (100 nodes, dry-bean
-  features as input currents to 16 nodes), sweeping coupling σ and measuring on
-  the same reservoir both the **classification accuracy** (full-state readout)
-  and the **avalanche branching ratio** (a separate Poisson probe), plus a
-  readout-shrinkage curve using random node subsets.
-- **Finding:** accuracy is 0.86–0.905 across the whole coupling range, best
-  (0.905) at criticality (σ=0.030, branching≈1.09) — a weak peak, matching
-  Beattie's ~90.75% level and their robustness-without-tuning claim. However,
-  the readout-shrinkage robustness is greatest for the **supercritical**
-  (synchronized) reservoir, not the critical one, so Beattie's specific
-  "critical ⇒ most shrinkage-robust" claim is not cleanly reproduced here.
-- **Caveats:** one reservoir realization per σ, complete-graph (not
-  Watts-Strogatz) coupling, 420 samples, naive branching estimator — suggestive
-  same-network evidence, not a definitive replication.
+  core claim: an excitable FHN network (100 nodes, **Watts-Strogatz** topology
+  k=10/β=0.3, dry-bean features as input currents to 16 nodes), sweeping coupling
+  σ and measuring on the same reservoir both the **classification accuracy**
+  (full-state readout) and the **avalanche branching ratio** (separate Poisson
+  probe), plus a readout-shrinkage curve over random node subsets. Averaged over
+  3 reservoir realizations (mean ± std).
+- **Finding (publication-grade, WS + multi-seed):** accuracy is **lowest at
+  criticality** (0.853 at σ=0.030, branching≈1.04) and **highest in the
+  supercritical regime** (0.917 at σ=3.0). Readout shrinkage is also best for the
+  supercritical reservoir (0.916→0.914, essentially flat) and worst for the
+  critical one. So for this network **criticality is neither the accuracy optimum
+  nor the most shrinkage-robust** — synchronization (strong coupling) provides
+  both, contradicting Beattie's specific "critical ⇒ best accuracy + most robust"
+  claims. (Note: an earlier complete-graph, single-seed version showed a weak
+  peak at criticality; the WS multi-seed result does not.)
+- **Caveats:** my coupling/input/readout differ from Beattie's circuit model;
+  the naive branching estimator is noisy; this is dispersion-backed same-network
+  evidence on a dry-bean subset, not a full circuit-level replication.
 
 ---
 

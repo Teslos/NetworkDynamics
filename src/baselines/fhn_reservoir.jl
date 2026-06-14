@@ -17,8 +17,16 @@ using LinearAlgebra
 using Random
 using Distributions
 using Statistics
+using Graphs
 
-export fhn_states, fhn_esp_divergence
+export fhn_states, fhn_esp_divergence, ws_adjacency
+
+# Watts-Strogatz adjacency as a dense symmetric 0/1 mask (zero diagonal), for use
+# as the `mask` argument to fhn_states. `k` = mean degree (even), `beta` = rewire.
+function ws_adjacency(n::Int, k::Int, beta::Real; rng=Random.default_rng())
+    g = watts_strogatz(n, k, beta; rng=rng)
+    return Float64.(Matrix(adjacency_matrix(g)))
+end
 
 const EPS = 0.05
 const A = 0.5

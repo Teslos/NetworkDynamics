@@ -37,10 +37,11 @@ reproduced exactly from `data/digits/optdigits.tes`.
    Beattie et al. themselves state. The correct notion, **avalanche
    criticality**, *does* hold (branching ratio crosses 1, near-mean-field
    power-law exponents).
-4. **Criticality buys at most a weak accuracy advantage** (best 0.905 at
-   branching≈1, but nearly flat across coupling) and our readout-shrinkage test
-   did **not** reproduce Beattie's "critical ⇒ most robust" claim (the
-   supercritical/synchronized reservoir was most robust here).
+4. **Criticality is not the optimum.** With a Watts–Strogatz topology and
+   multi-seed averaging, accuracy is *lowest* at criticality (0.853) and
+   *highest* in the supercritical/synchronized regime (0.917), which is also the
+   most readout-shrinkage-robust. Beattie's "critical ⇒ best accuracy + most
+   robust" claims are not reproduced for this network.
 5. **No result without dispersion.** Everything is reported as mean ± std over
    ≥8–10 seeds/folds, with a paired Wilcoxon test for model comparisons.
 
@@ -125,13 +126,16 @@ unsupported.
 
 ### Capstone: criticality and accuracy on one network (B11) — `criticality_vs_accuracy.md`
 
-Excitable FHN reservoir, dry bean, sweeping coupling and measuring both the
-branching ratio and accuracy on the same reservoir. Accuracy is 0.86–0.905 across
-the whole range, best (0.905) at criticality (branching≈1.09) — a **weak** peak
-that matches Beattie's ~90.75% level and "robustness without tuning." Readout
-shrinkage (random node subsets), however, was **most robust for the supercritical
-reservoir** (0.898→0.865) rather than the critical one (0.906→0.813), so Beattie's
-specific "critical ⇒ most shrinkage-robust" claim is not reproduced here.
+Excitable FHN reservoir (Watts–Strogatz topology, k=10/β=0.3), dry bean,
+sweeping coupling and measuring both the branching ratio and accuracy on the same
+reservoir, averaged over 3 reservoir realizations. Accuracy is **lowest at
+criticality** (0.853 ± 0.015 at σ=0.030, branching≈1.04) and **highest in the
+supercritical regime** (0.917 ± 0.004 at σ=3.0), which is also the most
+readout-shrinkage-robust (0.916→0.914 from 100→20 nodes, vs critical 0.853→0.811).
+So for this network criticality is neither the accuracy optimum nor the most
+robust — synchronization provides both, contradicting Beattie's specific claims.
+(An earlier complete-graph, single-seed version showed a weak peak at criticality;
+the topology- and seed-averaged result does not.)
 
 ### Framing: learned coupling vs fixed reservoir (B8) — `ude_ablation.md`
 
