@@ -35,6 +35,20 @@
 #     hidden/output cells are seeded with small noise to break the x = 0 saddle,
 #     and the nudge must not kick the state across a basin boundary.
 #   * delta must be large enough (overdamped-ish) for the relaxation to settle.
+#
+# IMPORTANT -- this configuration does NOT robustly solve XOR. A single
+# run_experiment() may print "4/4 correct", but that is the best checkpoint
+# tested on one lucky init draw. Multi-seed evaluation
+# (scripts/multiseed_convergence.jl) shows robust XOR accuracy ~57% (chance),
+# flat from zero to 0.1 test-init noise, across 15 seeds: the output is
+# essentially input-independent. The free cost reaches ~1e-3 only because the
+# checkpoint selects the luckiest of many noisy-init epochs (the cost bounces).
+# Root cause is the bistable FORWARD inference, not the EP gradient (which is
+# faithful here, cos ~ 0.99999 vs finite differences): the double-well basins
+# that make this a good memory substrate prevent the inputs from determining
+# the output basin in this small net. Contrast EP-XY-Network-Claude.jl, whose
+# smooth phase inference solves XOR robustly on 10/10 seeds. Likely needs
+# shallower wells / more hidden units / barrier annealing to train robustly.
 
 using LinearAlgebra
 using Statistics
