@@ -54,13 +54,39 @@ test of basin-invariance, stricter than the near-0 test noise (0.1) used earlier
    basin-invariant. Addressing the cause removes the need for the operating-depth
    hack.
 
-## Honest limits and next step
+## Stronger config: does more Minit + annealing close the floor?
 
-Not yet a clean solve across all seeds: Minit=20 gives mean 76% with min 64% and
-high seed-to-seed variance (max 100%). This is a modest budget (Minit=20, 1000
-epochs, one-sided gradient). The clear upward trend in Minit — and the 100%
-best seed — indicate that **more basin samples (Minit=30–50) and more epochs**
-should lift both the mean and the floor toward a robust solve, likely further if
-combined with barrier annealing. The corrected headline for the Duffing arc:
-bistable forward inference is not an insurmountable wall — it is the standard EP
-multistability problem, and the standard remedy (basin-averaging) works here too.
+`scripts/duffing_basin_averaging_strong.jl`, 6 seeds, 1500 epochs, full-range
+test init (25 draws). "solved" = robust acc ≥ 90% at the deep well.
+
+| config            | deep (mean/max/min) | solved | sweet | med final cost |
+|-------------------|---------------------|--------|-------|----------------|
+| Minit=30          | 70 / 100 / 44       | 1/6    | 71    | 0.723          |
+| Minit=50          | 70 / 96 / 53        | 1/6    | 69    | 0.742          |
+| **Minit=50 +anneal** | **81 / 98 / 59**  | **3/6** | 80   | **0.369**      |
+
+Two findings:
+
+1. **More Minit alone plateaus.** Minit=30 and 50 both sit at ~70% mean, 1/6
+   solved, min 44–53% — diminishing returns past ~20 basin samples. (The ~70%
+   here vs 76% at Minit=20 above is not a regression: this is a harder 6-seed set
+   with more test draws, not directly comparable.)
+2. **Annealing + basin-averaging is the effective combination.** Stacking barrier
+   annealing (s: 0.3→1.0 over the first half of training) on top lifts the mean to
+   **81%**, triples solved seeds to **3/6**, and drops final cost to 0.369. The two
+   levers are complementary — basin-averaging enforces init-invariance, annealing
+   shapes the landscape so the basins agree faster.
+
+## Where this leaves the bistable Duffing
+
+Basin-averaging (× annealing) is the right family of fix and gives the **best
+Duffing results of the arc** (best variant: mean 81%, 3/6 seeds fully solved,
+best seed ~100% under the honest full-range test). It is **not yet a clean
+all-seed solve** (min 59%) at this budget — the remaining variance suggests a
+subset of weight-init seeds land in hard training basins. Likely closers, in
+order: symmetric (±β) gradient instead of one-sided, more epochs, a tuned anneal
+schedule, and possibly a layered architecture (which helped XY). The corrected
+headline for the Duffing arc stands: bistable forward inference is not an
+insurmountable wall — it is the standard EP multistability problem, and the
+standard remedy (basin-averaging, optionally with annealing) works here too, just
+as it did for XY.
