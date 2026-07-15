@@ -69,6 +69,28 @@ baselines also rose (larger 2000-image training set), so this is a fair, harder
 comparison that the Duffing wins against the linear baseline. This confirms the v1
 diagnosis: the shortfall was optimization/data-limited, not a substrate limit.
 
+## Pushing the cheap levers (v3): diminishing returns
+
+Script: `scripts/duffing_mnist_mono_v3.jl`. Same substrate; more data and iterations:
+500 train / 100 test per class (5000/1000), 800 iterations.
+
+| model                   | train | test  |
+|-------------------------|------:|------:|
+| Duffing mono v3 (MNIST) | 0.935 | 0.913 |
+| logreg (14x14)          | —     | 0.889 |
+| MLP (14x14)             | —     | 0.932 |
+
+Duffing improved $0.904\to0.913$ (still bouncing/rising at iter 800) and beats
+logreg (0.889) by $\sim$2.4 pts. But the extra data helped the **MLP more**
+($0.912\to0.932$), so Duffing now trails the MLP by $\sim$1.9 pts -- the gap
+*widened*. Trajectory across the retunes: $0.85\to0.904\to0.913$, i.e. clearly
+diminishing returns, approaching the $\sim$0.93 practical ceiling of dense
+classifiers at 14x14. The residual gap to the MLP is EP-training efficiency plus the
+shallow single-hidden-layer architecture, not something more data/iterations closes
+cheaply. Materially higher accuracy needs a different lever -- higher input
+resolution (raises the ceiling for all, but expensive for the 2nd-order relaxation)
+or a deeper/convolutional front-end.
+
 ## Takeaway
 
 Combined with the sklearn result (0.96 = logreg) and the XOR result (layered Duffing
