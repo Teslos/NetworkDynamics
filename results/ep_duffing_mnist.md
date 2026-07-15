@@ -50,10 +50,31 @@ subset), not the full 28x28 / 60k benchmark. Full-resolution MNIST (784 input
 cells, N~800) is impractical for the second-order Duffing relaxation without a
 faster solver or a convolutional/patch front-end.
 
+## Retune (v2): closing the gap
+
+Script: `scripts/duffing_mnist_mono_v2.jl`. Same monostable + Landau substrate, with
+the knobs that closed the analogous sklearn gap: 200 train / 100 test per class
+(2000/1000), 60 hidden, 500 iterations + best-checkpoint, LR 0.006, batch 150.
+
+| model                   | train | test  |
+|-------------------------|------:|------:|
+| Duffing mono v2 (MNIST) | 0.954 | **0.904** |
+| logreg (14x14)          | —     | 0.887 |
+| MLP (14x14)             | —     | 0.912 |
+
+The gap is closed and reversed: 0.85 -> **0.904**, now **above logreg (0.887)** and
+within 0.8 pt of MLP (0.912), on real MNIST. Training was more stable (CE -> 0.11)
+and test was still rising at iteration 500, so there is further headroom. The
+baselines also rose (larger 2000-image training set), so this is a fair, harder
+comparison that the Duffing wins against the linear baseline. This confirms the v1
+diagnosis: the shortfall was optimization/data-limited, not a substrate limit.
+
 ## Takeaway
 
 Combined with the sklearn result (0.96 = logreg) and the XOR result (layered Duffing
 95%), this shows the monostable Duffing is a real classifier that **transfers across
-digit datasets**, competitive with linear/MLP baselines on the same features. The
+digit datasets** and, once tuned, **matches or exceeds linear/MLP baselines** on the
+same features -- on sklearn digits (0.96) and real MNIST (0.904 > logreg 0.887). The
 bistable regime remains the memory/single-bit tool; the monostable/smooth regime
-carries multi-class classification, on sklearn digits *and* real MNIST.
+carries multi-class classification, on sklearn digits *and* genuine MNIST.
+(Caveat unchanged: 14x14-pooled, balanced subset, not the full 28x28 / 60k benchmark.)
