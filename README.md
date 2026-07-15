@@ -67,14 +67,17 @@ Gradient-fidelity and mechanism studies: `scripts/check_ep_gradient_fidelity.jl`
 
 | model | test acc |
 |---|---|
-| XY (Wang protocol, full 64px) | **0.94** (`results/xy_digits_stage3.md`) |
+| XY (Wang protocol, full 64px) | 0.94 (`results/xy_digits_stage3.md`) |
 | Duffing, bistable readout | ~0.18 (chance) |
-| Duffing, **monostable** hidden + stable training (4×4) | **0.84** = logreg baseline (`results/ep_duffing_digits_mono_v2.md`) |
+| Duffing, **monostable** hidden + stable training, full 64px | **0.96** = logreg / MLP (`results/ep_duffing_digits_mono_fullres.md`) |
 
 The deep-double-well (bistable) Duffing **cannot** do multi-class — 10 independent
 bistable output cells (2¹⁰ basins, no competition) plus multistable hidden features.
 Making the cells **monostable** (single-well, smooth saturating nonlinearity) +
-graded/softmax readout + Landau-style annealing recovers full multi-class capability.
+graded/softmax readout + Landau-style annealing recovers **full** multi-class
+capability: at full resolution the monostable Duffing reaches 0.96, matching the
+logreg/MLP baselines and edging out XY (both substrates ≈ baseline in their smooth
+regime).
 
 **Unified conclusion.** For *both* substrates: the **bistable / deep-double-well
 regime** suits **single-bit / memory** tasks (XOR), while the **monostable / smooth /
