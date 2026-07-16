@@ -1,0 +1,4 @@
+torch>=2.1
+scikit-learn>=1.3
+numpy>=1.24
+tonic>=1.4  # for the SHD spiking dataset (compare_readouts_shd.py)
