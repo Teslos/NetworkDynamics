@@ -94,3 +94,46 @@ for (col, (ttl, m)) in enumerate((("stored '0'", asimg(phase_to_binary(hp[1]))),
     heatmap!(ax, m, colormap=:grays); hidedecorations!(ax)
 end
 save(joinpath(FIGDIR, "kuramoto_izhikevich_hebbian.png"), fig2)
+
+# ---- Fig. kuramoto_network_diff_phase: forcing-driven recognition (time evolution) ----
+# Reproduces the paper's forcing procedure (params omega=1, eps=100, h=0.1, T_f=400):
+# for t < T_f the oscillators are injection-locked to a noisy cue of digit '1' with
+# the coupling off; at t = T_f the forcing is switched off and the Hebbian coupling
+# is restored, and the network relaxes to the stored '1' attractor. We plot the phase
+# of each node relative to node 1 over time; nodes on the '1' stroke (resonant) are
+# drawn in red, the rest in blue.
+const EPS_F = 100.0; const H_F = 0.1; const TF = 400.0; const TEND = 900.0
+fp    = [binary_to_phase(pats[0]), binary_to_phase(pats[1])]   # store '0' and '1' (Hebbian)
+Jf    = hebbian_coupling(fp)
+cue1  = corrupt(fp[2]; frac=0.12, rng=rng)                     # noisy '1'
+onpix = pats[1] .> 0                                            # resonant pixels of '1'
+
+function forcing_rhs!(dθ, θ, p, t)
+    if t < p.tf
+        @inbounds @. dθ = p.k * sin(p.cue - θ)                 # inject-lock to cue, coupling off
+    else
+        z = cis.(θ); Jz = p.J * z
+        @inbounds @. dθ = imag(conj(z) * Jz)                   # Hebbian relaxation, forcing off
+    end
+    return nothing
+end
+
+θ0   = 2pi .* rand(rng, length(cue1)) .- pi
+probf = ODEProblem(forcing_rhs!, θ0, (0.0, TEND), (k=EPS_F*H_F, cue=cue1, tf=TF, J=Jf))
+solf  = solve(probf, Tsit5(); saveat=0.0:1.0:TEND, reltol=1e-6, abstol=1e-8)
+tt    = solf.t
+Θ     = reduce(hcat, solf.u)
+dphi  = mod2pi.(Θ .- Θ[1:1, :] .+ pi) .- pi                    # phase diff to node 1, in (-pi, pi]
+
+figf = Figure(size=(860, 430))
+axf = Axis(figf[1, 1], xlabel="time",
+           ylabel="phase relative to node 1  (θᵢ − θ₁)",
+           title="Forcing-driven recognition of digit '1'  (ε=100, h=0.1, T_f=400)")
+for i in 2:size(Θ, 1)
+    lines!(axf, tt, dphi[i, :], color=onpix[i] ? (:crimson, 0.35) : (:steelblue, 0.13))
+end
+vlines!(axf, [TF], color=:black, linestyle=:dash)
+text!(axf, TF + 8, 2.9; text="forcing off", align=(:left, :top))
+save(joinpath(FIGDIR, "kuramoto_network_diff_phase.png"), figf)
+@printf("Forcing recognition: overlap(final,'1') = %.3f\n", overlap(solf.u[end], fp[2]))
+println("Figure saved to ", abspath(joinpath(FIGDIR, "kuramoto_network_diff_phase.png")))
