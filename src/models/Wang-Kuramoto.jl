@@ -1,22 +1,19 @@
-# solves classification problem for XOR gate using neural network with oscillators.
+# Wang-Kuramoto.jl
+# Part 1: Physical Kuramoto simulation via NetworkDynamics (reference trajectories).
+# Part 2: UDE training — neural network learns oscillator coupling to solve XOR.
 using ComponentArrays, DiffEqFlux, NetworkDynamics, Lux, OrdinaryDiffEq, LinearAlgebra
 using Graphs
-using Optimization # for optimization problem
-using OptimizationOptimisers 
-using OptimizationOptimJL   
-using GLMakie
-using Random
-using StableRNGs
-using Flux
-using Plots
-using IterTools
-using LaTeXStrings
+using Optimization, OptimizationOptimisers, OptimizationOptimJL
+using CairoMakie
+using Random, StableRNGs
+using LaTeXStrings, Printf
 using Distributions
+using JLD2
 # default rng
 rng = StableRNG(1)
 
 function plot_rect_map(N::Int, M::Int, data::Vector{Float64}, ax)
-    #ax = GLMakie.Axis(f[1, 1])
+    #ax = Axis(f[1, 1])
     centers_x = 1:N
     centers_y = 1:M
     data = reshape(abs.(data), N, M)
@@ -27,7 +24,7 @@ function plot_phases(N::Int, M::Int, u::Array{Float64,2}, t::Array{Float64,1}, x
     # Find the index of the value in t that is closest to t0 time
     for t0 in forcing_period:2:tspan[2]
         f = Figure()
-        ax = GLMakie.Axis(f[1, 1], xlabel = "Node", ylabel = L"\phi", title = "XOR gate network at time $t0")
+        ax = Axis(f[1, 1], xlabel = "Node", ylabel = L"\phi", title = "XOR gate network at time $t0")
         # set y-axis to be in the range of -π to π
         ax.yticks = (0:π/2:2π, ["0", "π/2", "π", "3π/2", "2π"])
         index_closest_to_t = findmin(abs.(t .- t0))[2]
@@ -54,6 +51,11 @@ function xor_gate(u::Vector{Int64})
 end
 
 N = 5
+labels_xor = ["FF", "FT", "TF", "TT"]
+
+# ── Part 1: NetworkDynamics reference simulation (skipped unless --nd passed) ─
+if "--nd" in ARGS
+
 g, edge_weights = create_graph(N)
 
 # Functions for edges and vertices
@@ -140,213 +142,213 @@ function prob_func(prob, i, repeat)
 end
 
 ens_prob = EnsembleProblem(ode_prob; prob_func=prob_func)
-ens_sol = solve(ens_prob, Tsit5(), EnsembleThreads(); trajectories=4, saveat=tsteps)
+ens_sol = solve(ens_prob, Tsit5(), EnsembleThreads();
+                trajectories=4, saveat=tsteps, tstops=[forcing_period])
 all_solutions = Array(ens_sol)
 
 # plot the solutions
-fig = Figure(layout=(2,2))
-labels_xor = ["FF", "FT", "TF", "TT"]
+fig = Figure(size=(900, 600))
 for (i,sol) in enumerate(ens_sol)
-    ax = GLMakie.Axis(fig[i ÷ 3 + 1, i % 2 + (i % 2 == 0 ? 2 : 0)]; xlabel="Time", ylabel="u", title="XOR gate $(labels_xor[i])")
+    row, col = divrem(i-1, 2)
+    ax = CairoMakie.Axis(fig[row+1, col+1]; xlabel="Time", ylabel="u", title="XOR gate $(labels_xor[i])")
     t = sol.t
     u = sol(sol.t)[1:N,:]
-    for i in [1,2,5]
-        lines!(ax, t, u[i,:], linewidth=2, label="Oscillator $i")
-        text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
+    for j in [1,2,5]
+        lines!(ax, t, u[j,:], linewidth=2, label="Oscillator $j")
     end
     axislegend(ax, position = :rt)
 end
-
-all_solutions = Array(all_solutions)
-
-# in this case minibatch is all possible combinations of XOR gate
-# u = [0, 0]->0, [0, 1]->1, [1, 0]->, [1, 1]->0
-using Distributions
-uniform = Uniform(-π, π)
-# hidden and output layer have uniform distribution
-rnd_angle = rand(uniform, 3)
-true_data = [vcat([-π/2, -π/2],rnd_angle), vcat([-π/2, +π/2],rnd_angle),
-             vcat([+π/2, -π/2],rnd_angle), vcat([+π/2, +π/2],rnd_angle)]
-xor_data = [-π/2, +π/2, +π/2, -π/2]
-
-# Learning the parameters of the network
-ann_wk = Lux.Chain(Lux.Dense(2, 20, tanh),
-    Lux.Dense(20, 1))
-nn_pp, st = Lux.setup(rng, ann_wk)
-pp = ComponentArray(nn_pp)
-
-
-@inline function wk_edge!(e, v_s, v_d, p, t)
-    nn_p = p
-    in = [v_s[1], v_d[1]]
-    e[1] = Lux.apply(ann_wk, in, nn_p, st)[1][1]*sin.(v_s[1] .- v_d[1])
-    nothing 
+let figdir = joinpath(@__DIR__, "../../results/figures")
+    isdir(figdir) || mkpath(figdir)
+    save(joinpath(figdir, "kuramoto_xor_nd.png"), fig)
+    println("Saved: results/figures/kuramoto_xor_nd.png")
 end
 
-@inline function wk_vertex!(dv, v, esum, (h,ψ,β,τ), t)
-    println("size of v: ", size(v))
-    #h, ψ, β, τ = p
-    #if typeof(h) == Float32
-    #    println("h: ", h, " ψ: ", ψ)
-    #end
-    #dv .= -h*sin.(v .- ψ) - β * sin.(v .- ψ)/(1 .+ cos.(v .- ψ))
-    dv .= -h*sin.(v .- ψ) + esum[1]
-    nothing
+end # if "--nd" in ARGS
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PART 2 — UDE training: neural network learns Kuramoto coupling for XOR gate
+#
+# Design:
+#   - Vertex dynamics: dφᵢ = -hᵢ·sin(φᵢ - ψᵢ)  (ψᵢ encodes the XOR input pattern)
+#   - Edge coupling:   Σⱼ NN([sin φⱼ, cos φⱼ, sin φᵢ, cos φᵢ]) · sin(φⱼ - φᵢ)
+#   - The NN is shared across all edges and is the only thing optimized.
+#   - Loss: Wang et al. (2024) cost C = -log(1 + cos(φ_out - φ_target)) summed
+#     over all 4 XOR input patterns. More stable than 1-cos near ±π.
+#   - Deterministic initial conditions — input nodes clamped to pattern values.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Plain Julia neural network — bypasses LuxLib.Utils._return_type bug that
+# affects all activations in this Lux/LuxLib version under Zygote AD.
+# Architecture: 4 → 16 (tanh) → 1 (linear).  Parameters stored flat so
+# ComponentArray gives a single gradient vector for the optimizer.
+const nn_init = ComponentArray(
+    W1 = randn(rng, Float64, 16 * 4) .* Float64(0.1),
+    b1 = zeros(Float64, 16),
+    W2 = randn(rng, Float64, 16) .* Float64(0.1),
+    b2 = zeros(Float64, 1)
+)
+
+function apply_nn(nn_p, x::AbstractVector)
+    W1 = reshape(nn_p.W1, 16, 4)
+    h  = tanh.(W1 * x .+ nn_p.b1)
+    return dot(nn_p.W2, h) + nn_p.b2[1]
 end
 
-using MLUtils
-# @note: testing on a single solution (2nd solution)
-single_solution = [all_solutions[2]]
-single_true = [true_data[2]]
-batch_size = 4
-train_loader_neural = MLUtils.DataLoader((all_solutions, xor_data), batchsize=batch_size, shuffle=false)
-ann_vertex = VertexModel(; f=wk_vertex!, g=StateMask(1:1), dim=1, sym=[:v], psym=[:h, :ψ, :β=>20.0, :τ])
-ann_wk_edge = EdgeModel(; g=AntiSymmetric(wk_edge!), outdim=1, psym=[:weight])
-vertex_list = [ann_vertex for i in vertices(g)]
-edge_list = [ann_wk_edge for i in edges(g)]
-wk_network! = Network(g, vertex_list, edge_list)
+# XOR truth table as target phases — rows: [FF, FT, TF, TT]
+# Columns: [in1, in2, hid1, hid2, out]
+const Ψ_XOR = Float64[
+    -π/2  -π/2   0.0  0.0  -π/2;   # 0 XOR 0 = 0
+    -π/2   π/2   0.0  0.0   π/2;   # 0 XOR 1 = 1
+     π/2  -π/2   0.0  0.0   π/2;   # 1 XOR 0 = 1
+     π/2   π/2   0.0  0.0  -π/2    # 1 XOR 1 = 0
+]
+const H_NODES     = Float64[0.5, 0.5, 0.0, 0.0, 0.5]  # bias strength per node
+const XOR_TARGETS = Float64[-π/2, π/2, π/2, -π/2]     # target phase for output node
+const OUTPUT_NODE = 5
+const UDE_TSPAN   = (0.0, 200.0)
+const UDE_TSTEPS  = range(UDE_TSPAN[1], UDE_TSPAN[2], length=400)
+const TRAIN_T     = 5.0   # short horizon for Zygote AD (50 steps); evaluate at T=200
 
-p_wk = NWParameter(wk_network!)
-p_wk.e[:, :weight] = [deepcopy(nn_pp) for i in 1:20]
-
-probwk = ODEProblem(wk_network!, ϕ0, tspan, pp)
-
-function distance_func(x, y)
-    return sum(1 - cos.(x .- y))
+# UDE ODE — p = ComponentArray(nn=<Lux params>, psi=<vertex ψ for this pattern>)
+# Pure functional form (no mutation) so Zygote can differentiate through it.
+function kuramoto_rhs(φ, nn_p, psi)
+    return [begin
+        s = -H_NODES[i] * sin(φ[i] - psi[i])
+        for j in 1:N
+            if j != i
+                inp = [sin(φ[j]), cos(φ[j]), sin(φ[i]), cos(φ[i])]
+                w_ij = apply_nn(nn_p, inp)
+                s = s + w_ij * sin(φ[j] - φ[i])
+            end
+        end
+        s
+    end for i in 1:N]
 end
 
-function predict_neuralode(fullp, x0)
-    #println("x0: ", x0)
-    println("fullp: ", fullp)
-    println("size of fullp: ", size(fullp))
-    Array(solve(probwk, Tsit5(), p = fullp, u0=x0, saveat=tsteps, sensealg=ForwardDiffSensitivity()))
+# Manual RK4 integrator — fully differentiable by Zygote.
+# Uses immutable rebinding (φ = φ .+ ...) so no mutation hits Zygote's tape.
+# Training uses T=20 (fast); evaluation/plotting can pass a larger T.
+function rk4_integrate(φ0, nn_p, psi; T=20.0, dt=0.1)
+    φ     = Float64.(φ0)
+    nsteps = round(Int, T / dt)
+    for _ in 1:nsteps
+        k1 = kuramoto_rhs(φ,               nn_p, psi)
+        k2 = kuramoto_rhs(φ .+ 0.5*dt.*k1, nn_p, psi)
+        k3 = kuramoto_rhs(φ .+ 0.5*dt.*k2, nn_p, psi)
+        k4 = kuramoto_rhs(φ .+    dt.*k3,  nn_p, psi)
+        φ  = φ .+ (dt/6.0) .* (k1 .+ 2.0.*k2 .+ 2.0.*k3 .+ k4)
+    end
+    return φ
 end
 
-# batch should contain all possible combinations of XOR gate
-function loss_neuralode(p)
-    x0 = randn(Float64, N)  
-    # do it for all data points in the batch
-    #println("p: ", p, " size of batch_t: ", size(batch_t))
-    pred = predict_neuralode(p, x0)
-    loss = sum(abs2, all_solutions[1][5,:] .- pred[5,:])
-    #pred = predict_neuralode(p)
-    #loss = sum(abs2, all_solutions[1][5,:] .- pred[5,:])
-    println("Current loss is: ", sum(loss, dims=1))
-    return loss, pred
+# Trajectory integrator for plotting — mutating, efficient, no gradient needed.
+function rk4_trajectory(φ0::Vector{Float64}, nn_p, psi; T=200.0, dt=0.2, save_every=5)
+    φ      = copy(φ0)
+    nsteps = round(Int, T / dt)
+    nsaved = nsteps ÷ save_every + 1
+    ts     = Vector{Float64}(undef, nsaved)
+    traj   = Matrix{Float64}(undef, N, nsaved)
+    ts[1]  = 0.0
+    traj[:, 1] = φ
+    si = 2
+    for step in 1:nsteps
+        k1 = kuramoto_rhs(φ,               nn_p, psi)
+        k2 = kuramoto_rhs(φ .+ 0.5*dt.*k1, nn_p, psi)
+        k3 = kuramoto_rhs(φ .+ 0.5*dt.*k2, nn_p, psi)
+        k4 = kuramoto_rhs(φ .+    dt.*k3,  nn_p, psi)
+        φ .= φ .+ (dt/6.0) .* (k1 .+ 2.0.*k2 .+ 2.0.*k3 .+ k4)
+        if step % save_every == 0 && si <= nsaved
+            ts[si]     = step * dt
+            traj[:, si] = φ
+            si += 1
+        end
+    end
+    return ts, traj
 end
 
-output_index = 5
-loss_function(data, pred) = begin
-    diff = data[output_index,:,:] .- pred[output_index,:,:]
-    loss = ones(size(diff)) .- cos.(diff)
-    return sum(loss)
+# Wang et al. (2024) phase cost — numerically guarded near anti-phase
+wang_cost(φ::Real, φt::Real) = -log(max(1.0 + cos(φ - φt), 1e-8))
+
+# Initial condition builder — input nodes clamped to XOR pattern phases
+function make_u0(k::Int)
+    return [Ψ_XOR[k, 1], Ψ_XOR[k, 2], 0.0, 0.0, 0.0]
 end
 
-function prob_func_neuralode(p,i,repeat)
-    ps = (p, pars[i])
-    println("pars {$i}: ", pars[i])
-    remake(probwk, p=p_wk, u0=u0s[:,i], saveat=tsteps)
-end
-
-#=
-@everywhere using Zygote
-@everywhere using SciMLBase
-@everywhere using ComponentArrays
-@everywhere using NetworkDynamics
-@everywhere using DiffEqFlux
-=#
-prob_ens = EnsembleProblem(probwk, prob_func = prob_func_neuralode)
-#addprocs(8)
-iter = 0
-# trying the Ensamble problem to solve XOR gate
-function loss_multiple_shooting(p; group_size=4)
-    global iter
-    iter = iter + 1
-    # do it for all data points in the batch
-    #println("Iteration $iter finished:")
-    #println("size of p: ",p)
-    loss = multiple_shoot(p, all_solutions, tsteps, prob_ens, EnsembleThreads(), loss_function, Tsit5(), group_size;
-    continuity_term=300, trajectories = batch_size)
-    
-    println("Current loss is: ", loss[1])
+# Loss: Wang cost on final state (T=20) summed over all 4 XOR patterns.
+# Uses manual RK4 so Zygote differentiates through integration directly —
+# no ODE solver adjoint, no FunctionWrappers, no _return_type errors.
+function loss_xor(nn_p)
+    loss = zero(eltype(nn_p))
+    for k in 1:4
+        φ_final = rk4_integrate(make_u0(k), nn_p, Ψ_XOR[k, :]; T=TRAIN_T)
+        loss   += wang_cost(φ_final[OUTPUT_NODE], XOR_TARGETS[k])
+    end
     return loss
 end
 
-callback = function (p, l, pred; doplot = false)
-    # plot current prediction against data
-    if doplot
-        plt = Plots.scatter(tsteps, single_solution; label = "data")
-        Plots.scatter!(plt, tsteps, pred[5,:]; label = "prediction")
-        Plots.display(Plots.plot(plt))
-    end
+# ── Optimization ──────────────────────────────────────────────────────────────
+p_init  = nn_init                            # Float64 ComponentArray, matches apply_nn
+adtype  = Optimization.AutoForwardDiff()
+optf    = Optimization.OptimizationFunction((x, _) -> loss_xor(x), adtype)
+optprob = Optimization.OptimizationProblem(optf, p_init)
+
+iter_count = Ref(0)
+cb = (p, l) -> begin
+    iter_count[] += 1
+    iter_count[] % 20 == 0 && @printf("Iter %4d  loss = %.6f\n", iter_count[], l)
     return false
 end
-#callback(pp, loss_neuralode(pp, train_loader_neural.data[1], train_loader_neural.data[2])...; doplot=true)
 
-# use Optimization.jl to solve the problem
-adtype = Optimization.AutoZygote()
+# Stage 1: Adam — broad exploration
+result_ude = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.01);
+    callback=cb, maxiters=500)
 
-optf = Optimization.OptimizationFunction((x, p) -> loss_neuralode(x), adtype)
-optprob = Optimization.OptimizationProblem(optf, ComponentArray(nn_pp))
-#result_neuralode = Optimization.solve(optprob, OptimizationOptimisers.AdamW(0.05), ncycle(train_loader_neural, 100); 
-#    callback = callback, maxiters=100)
+# Stage 2: AdamW with lower learning rate — fine-tuning
+optprob2    = remake(optprob; u0=result_ude.minimizer)
+result_ude2 = Optimization.solve(optprob2, OptimizationOptimisers.AdamW(0.001);
+    callback=cb, maxiters=300)
 
-result_neuralode = Optimization.solve(optprob, Optimization.Sophia(); 
-    callback = callback, maxiters=100)
-optprob2 = remake(optprob; u0 = result_neuralode.minimizer)
-using OptimizationPolyalgorithms
-#result_neuralode2 = Optimization.solve(optprob2, Optim.BFGS(; initial_stepnorm = 0.01);
-#      callback, allow_f_increases = false)
- result_neuralode2 = Optimization.solve(optprob2, Optimization.Sophia(); callback = callback)
-
-callback(result_neuralode2.u, loss_neuralode(result_neuralode2.u, train_loader_neural.data[1], train_loader_neural.data[2])...; doplot=true)
-using Plots
-using PlotlyJS 
-plotlyjs()
-Plots.savefig("Wang-Kuramoto-opt.png")
-using JLD2
-
-# save the results
-@save joinpath(@__DIR__, "../../results/models/Wang-Kuramoto-result-neuralode.jld2") result_neuralode2
-JLD2.@load joinpath(@__DIR__, "../../results/models/Wang-Kuramoto-result-neuralode.jld2") result_neuralode
-
-# try to predict the XOR gate using the trained network
-x0 = randn(Float64, N)
-training_data = (π / 2) * [-1 -1; -1 1; 1 -1; 1 1]
-target_data = (π/2) * [-1, 1, 1, -1]
-for ind in 1:4
-    x0[1:2] .= training_data[ind,:]
-
-    probwk = ODEProblem(wk_network!, x0, tspan, result_neuralode.u)
-    solwk = solve(probwk, Tsit5(), saveat=tsteps)
-    xor_pred = Array(solwk)
-    fig = Figure()
-    ax = GLMakie.Axis(fig[1, 1]; xlabel="Time", ylabel="u", title="XOR gate")
-    t = solwk.t
-    u = real.(solwk(solwk.t)[1:N,:])
-    for i in [1,2,5]
-        lines!(ax, t, u[i,:], linewidth=2, label="Oscillator $i")
-        text!(ax, t[end], u[i,end]+0.1, text=string("Oscillator ", i), align=(:right, :center))
-    end
-    axislegend(ax, position = :rt)
-    GLMakie.save("Wang-Kuramoto-opt_random_init_$(ind).png",fig, px_per_unit = 4)
-    println("dist: $(distance_func(u[5,end], xor_data[ind]))")
+# Save trained NN parameters
+let outdir = joinpath(@__DIR__, "../../results/models")
+    isdir(outdir) || mkpath(outdir)
+    @save joinpath(outdir, "Wang-Kuramoto-result-neuralode.jld2") result_ude2
+    println("Saved: results/models/Wang-Kuramoto-result-neuralode.jld2")
 end
 
-# plot phase difference between all plot_phases
-plot_phases(N, 1, u, solwk.t, ϕ0, forcing_period, tspan)
-#=
-# Initial parameters of the network, that are optimized
-pinit = ComponentArray(parameters)
-cb(pinit, loss(pinit, train_loader)...; doplot=false)
+# ── Evaluation ────────────────────────────────────────────────────────────────
+println("\n── XOR evaluation (trained UDE) ─────────────────")
+trained_nn = result_ude2.minimizer
+let n_correct = 0
+    for k in 1:4
+        φ_final = rk4_integrate(make_u0(k), trained_nn, Ψ_XOR[k, :]; T=UDE_TSPAN[2])
+        φ_out   = φ_final[OUTPUT_NODE]
+        target  = XOR_TARGETS[k]
+        ok      = sign(φ_out) == sign(target)
+        ok && (n_correct += 1)
+        @printf("  %s  φ_out=%+.3fπ  target=%+.3fπ  %s\n",
+                labels_xor[k], φ_out/π, target/π, ok ? "✓" : "✗")
+    end
+    @printf("Accuracy: %d/4 = %.0f%%\n\n", n_correct, 100.0 * n_correct / 4)
+end
 
-# We optimize the parameters of the network
-adtype = Optimization.AutoEnzyme()
-ftest(x,p) = loss(p,x)
-optf = Optimization.OptimizationFunction(ftest, adtype)
-optprob = Optimization.OptimizationProblem(optf, pinit)
-predict(pinit, train_loader.data[1])
-loss(pinit, train_loader)
-# do optimization to solve the system
-res = Optimization.solve(optprob, OptimizationOptimisers.Adam(0.05), maxiters=20)
-=#
+# ── Plot trained dynamics ─────────────────────────────────────────────────────
+fig_ude = Figure(size=(1000, 700))
+for k in 1:4
+    row, col = divrem(k-1, 2)
+    ax = CairoMakie.Axis(fig_ude[row+1, col+1]; xlabel="Time", ylabel="Phase / π",
+              title="UDE XOR $(labels_xor[k])")
+    ts, traj = rk4_trajectory(make_u0(k), trained_nn, Ψ_XOR[k, :]; T=UDE_TSPAN[2])
+    for i in [1, 2, OUTPUT_NODE]
+        lbl = i == OUTPUT_NODE ? "Node $i (output)" : "Node $i (input)"
+        lines!(ax, ts, traj[i, :] ./ π; linewidth=2, label=lbl)
+    end
+    hlines!(ax, [XOR_TARGETS[k]/π]; linestyle=:dash, color=:black, label="target")
+    axislegend(ax; position=:rc)
+end
+let figdir = joinpath(@__DIR__, "../../results/figures")
+    isdir(figdir) || mkpath(figdir)
+    save(joinpath(figdir, "kuramoto_xor_ude.png"), fig_ude)
+    println("Saved: results/figures/kuramoto_xor_ude.png")
+end

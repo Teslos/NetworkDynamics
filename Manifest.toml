@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "11710510b269f50c5ba2072142bef7237cc0aeb9"
+project_hash = "1f540773696345f25f5f9bfda26b4d4afa3cdbd6"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -778,6 +778,12 @@ weakdeps = ["OffsetArrays"]
 
     [deps.DSP.extensions]
     OffsetArraysExt = "OffsetArrays"
+
+[[deps.DaemonMode]]
+deps = ["Crayons", "Sockets"]
+git-tree-sha1 = "8aee56d540665a9386b067cecc65db0982704421"
+uuid = "d749ddd5-2b29-4920-8305-6ff5a704e36e"
+version = "0.1.2"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
