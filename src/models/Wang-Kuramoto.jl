@@ -50,7 +50,7 @@ function xor_gate(u::Vector{Int64})
     return u[1] ⊻ u[2]
 end
 
-N = 5
+N = 3   # 2 inputs + 1 output (no hidden)
 labels_xor = ["FF", "FT", "TF", "TT"]
 
 # ── Part 1: NetworkDynamics reference simulation (skipped unless --nd passed) ─
@@ -199,14 +199,14 @@ end
 # XOR truth table as target phases — rows: [FF, FT, TF, TT]
 # Columns: [in1, in2, hid1, hid2, out]
 const Ψ_XOR = Float64[
-    -π/2  -π/2   0.0  0.0  -π/2;   # 0 XOR 0 = 0
-    -π/2   π/2   0.0  0.0   π/2;   # 0 XOR 1 = 1
-     π/2  -π/2   0.0  0.0   π/2;   # 1 XOR 0 = 1
-     π/2   π/2   0.0  0.0  -π/2    # 1 XOR 1 = 0
+    -π/2  -π/2  -π/2;   # 0 XOR 0 = 0
+    -π/2   π/2   π/2;   # 0 XOR 1 = 1
+     π/2  -π/2   π/2;   # 1 XOR 0 = 1
+     π/2   π/2  -π/2    # 1 XOR 1 = 0
 ]
-const H_NODES     = Float64[0.5, 0.5, 0.0, 0.0, 0.5]  # bias strength per node
-const XOR_TARGETS = Float64[-π/2, π/2, π/2, -π/2]     # target phase for output node
-const OUTPUT_NODE = 5
+const H_NODES     = Float64[0.5, 0.5, 0.5]        # bias strength per node
+const XOR_TARGETS = Float64[-π/2, π/2, π/2, -π/2] # target phase for output node
+const OUTPUT_NODE = 3
 const UDE_TSPAN   = (0.0, 200.0)
 const UDE_TSTEPS  = range(UDE_TSPAN[1], UDE_TSPAN[2], length=400)
 const TRAIN_T     = 5.0   # short horizon for Zygote AD (50 steps); evaluate at T=200
@@ -273,7 +273,7 @@ wang_cost(φ::Real, φt::Real) = -log(max(1.0 + cos(φ - φt), 1e-8))
 
 # Initial condition builder — input nodes clamped to XOR pattern phases
 function make_u0(k::Int)
-    return [Ψ_XOR[k, 1], Ψ_XOR[k, 2], 0.0, 0.0, 0.0]
+    return [Ψ_XOR[k, 1], Ψ_XOR[k, 2], 0.0]
 end
 
 # Loss: Wang cost on final state (T=20) summed over all 4 XOR patterns.
@@ -313,8 +313,8 @@ result_ude2 = Optimization.solve(optprob2, OptimizationOptimisers.AdamW(0.001);
 # Save trained NN parameters
 let outdir = joinpath(@__DIR__, "../../results/models")
     isdir(outdir) || mkpath(outdir)
-    @save joinpath(outdir, "Wang-Kuramoto-result-neuralode.jld2") result_ude2
-    println("Saved: results/models/Wang-Kuramoto-result-neuralode.jld2")
+    @save joinpath(outdir, "Wang-Kuramoto-result-neuralode-N$(N).jld2") result_ude2
+    println("Saved: results/models/Wang-Kuramoto-result-neuralode-N$(N).jld2")
 end
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
@@ -349,6 +349,6 @@ for k in 1:4
 end
 let figdir = joinpath(@__DIR__, "../../results/figures")
     isdir(figdir) || mkpath(figdir)
-    save(joinpath(figdir, "kuramoto_xor_ude.png"), fig_ude)
-    println("Saved: results/figures/kuramoto_xor_ude.png")
+    save(joinpath(figdir, "kuramoto_xor_ude_N$(N).png"), fig_ude)
+    println("Saved: results/figures/kuramoto_xor_ude_N$(N).png")
 end
