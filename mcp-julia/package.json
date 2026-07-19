@@ -1,0 +1,12 @@
+{
+  "name": "mcp-julia",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server exposing a persistent, warm Julia session for the reservoir-computing project.",
+  "main": "index.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  }
+}

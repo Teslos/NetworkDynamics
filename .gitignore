@@ -7,3 +7,7 @@
 *.svg
 .vscode
 *.jld2
+
+# Julia MCP server (Node bridge): deps and runtime logs
+mcp-julia/node_modules/
+mcp-julia/.logs/

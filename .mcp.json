@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "julia-networkdynamics": {
+      "command": "node",
+      "args": ["mcp-julia/index.js"],
+      "env": {
+        "JULIA_MCP_PROJECT_DIR": ".",
+        "JULIA_MCP_CWD": ".",
+        "JULIA_MCP_PORT": "27183"
+      }
+    }
+  }
+}
