@@ -87,13 +87,19 @@ function kuramoto_rhs(φ, p, h_vec, ψ_vec)
     out = Vector{Tp}(undef, N_OSC)
     @inbounds for i in 1:N_OSC
         si = sin(φ[i]); ci = cos(φ[i])
+        # i-side pre-activation (W1[:,3]·sinφi + W1[:,4]·cosφi + b1) depends only on i;
+        # hoist it out of the edge loop (~1.17× faster Enzyme gradient, math unchanged).
+        bi = Vector{Tp}(undef, 16)
+        for h in 1:16
+            bi[h] = W1[h,3]*si + W1[h,4]*ci + b1[h]
+        end
         s  = -h_vec[i] * sin(φ[i] - ψ_vec[i])
         for j in 1:N_OSC
             j == i && continue
             sj = sin(φ[j]); cj = cos(φ[j])
             w = b2
             for h in 1:16
-                z = W1[h,1]*sj + W1[h,2]*cj + W1[h,3]*si + W1[h,4]*ci + b1[h]
+                z = W1[h,1]*sj + W1[h,2]*cj + bi[h]
                 w += W2[h] * tanh(z)
             end
             s += w * sin(φ[j] - φ[i])

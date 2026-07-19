@@ -80,13 +80,19 @@ function rhs(φ, nn_p, h_vec, psi_vec)
     out = Vector{Tp}(undef, N)
     @inbounds for i in 1:N
         si = sin(φ[i]); ci = cos(φ[i])
+        # i-side pre-activation W1[:,3]·sinφi + W1[:,4]·cosφi + b1 depends only on i;
+        # hoist it out of the edge loop (~1.17× faster Enzyme gradient, math unchanged).
+        bi = Vector{Tp}(undef, H)
+        for h in 1:H
+            bi[h] = W1[h,3]*si + W1[h,4]*ci + b1[h]
+        end
         acc = -h_vec[i] * sin(φ[i] - psi_vec[i])
         for j in 1:N
             j == i && continue
             sj = sin(φ[j]); cj = cos(φ[j])
             w = b2
             for h in 1:H
-                z = W1[h,1]*sj + W1[h,2]*cj + W1[h,3]*si + W1[h,4]*ci + b1[h]
+                z = W1[h,1]*sj + W1[h,2]*cj + bi[h]
                 w += W2[h] * tanh(z)
             end
             acc += w * sin(φ[j] - φ[i])
