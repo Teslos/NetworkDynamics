@@ -20,6 +20,9 @@ input projection is free.
 | `parity_ude.jl` | The main experiment: UDE encoder with **fixed random** vs **trainable** input projection `W_IN`, against random-features (and MLP reference). |
 | `esn_parity_baseline.jl` | Direct "learned encoder vs random reservoir" test: a random recurrent ESN (bits fed sequentially) on the same k=3 parity, swept over reservoir size to show failure is not a capacity issue. |
 | `dynamics_bypass_control.jl` | **Critical control**: removes the RK4 dynamics entirely (phases = `W_IN·x`) and asks whether trainable-`W_IN` + sin/cos still solves parity. It does (100%) — so the dynamics are inert here (see caveat below). |
+| `temporal_parity.jl` | **Temporal/delayed parity** — k bits presented *sequentially* to transient input nodes, output = parity. Memory is required (memoryless model = chance by construction), so the dynamics are load-bearing here (bypass cannot apply). Compares trained coupling (UDE) vs fixed-random coupling (reservoir). Uses hand-rolled fixed-step RK4 + Enzyme. |
+| `temporal_parity_adaptive.jl` | Same temporal task with an **adaptive solver** (`OrdinaryDiffEq` Tsit5 + `SciMLSensitivity` adjoint + Zygote). Shows the trained-coupling instability seen under fixed-step RK4 was an *integrator artifact* — training is stable here. |
+| `adjoint_vjp_backends.jl` | Diagnostic: which adjoint VJP backend works for the Kuramoto-UDE on this stack. `ZygoteVJP` = correct; `EnzymeVJP` = broken (silent zero gradient / segfault) on Julia 1.12 + Windows. |
 | `esn_ceiling_sweep.jl` | Ceiling control for the *digit* model: sweeps ESN size (5 seeds), holding the trained UDE fixed, to show the ESN+UDE gain vs headroom. Requires `results/models/ude_subreservoir.jld2` (run `src/models/UDE-SubReservoir.jl` first). |
 
 ## Headline results
@@ -77,3 +80,36 @@ trainable-linear + sine model beats them too.
 
 The optdigits story is unaffected in direction: an easy dataset (ESN saturates,
 see the ceiling sweep) *and* a fixed random `W_IN_UDE` in the digit model.
+
+## Temporal / delayed parity (PRELIMINARY — where the dynamics *are* load-bearing)
+
+Static parity is the wrong task to judge the dynamics (they're inert, above). The
+temporal version presents the k bits **sequentially to transient input nodes** and
+reads parity at the end, so the network must *remember* — a memoryless model is at
+chance by construction, and the dynamics-bypass cannot apply.
+
+Preliminary K=3 result (8 patterns, single seed — a **memorization** test, not a
+generalization claim):
+
+| Model | Acc |
+|---|---|
+| memoryless (by construction) | 4/8 (chance) |
+| random reservoir (fixed coupling, trained readout) | 7/8 (stable) |
+| UDE (trained coupling), **fixed-step RK4 + lr 0.01** | unstable: 8→6→7→5→6/8 |
+| UDE (trained coupling), **adaptive Tsit5 + adjoint + lr 1e-3** | stable, monotone: 4→5→6→7/8 |
+
+**Integrator lesson (important):** the trained-coupling instability under hand-rolled
+fixed-step RK4 was an **artifact of the integrator + too-high LR** (the same
+Euler-blows-up failure fixed elsewhere by RK45), *not* evidence that UDE training is
+unstable. With an adaptive solver the training is stable and monotone. So: distrust
+instability seen under fixed-step RK4; verify with an adaptive solver.
+
+**AD-backend lesson:** for adaptive-solver gradients on this stack (Julia 1.12 +
+Windows), use `InterpolatingAdjoint(autojacvec=ZygoteVJP())`. `EnzymeVJP` is broken
+here — `InterpolatingAdjoint`+`EnzymeVJP` silently returns a **zero gradient** and
+`GaussAdjoint`+`EnzymeVJP` **segfaults**. Reserve Enzyme for the fast fixed-step /
+hand-rolled RK4 path; the adjoint route is ~200× slower per gradient.
+
+**Caveats / not yet a result:** K=3 is only 8 patterns (memorization, single seed);
+the trained-vs-random-*dynamics* comparison is not settled. A real study needs a
+stable integrator, larger k (16–32 patterns), and multiple seeds.
