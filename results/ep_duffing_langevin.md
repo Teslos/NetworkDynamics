@@ -149,21 +149,30 @@ only the relaxer (Langevin) and the gradient (thermal-average contrast with the 
 nudge and common random numbers). Efficiency note: the batch-summed correlation the gradient
 needs is `Σ_t XᵀX` (one gemm per sampled step), so no per-sample `N×N` tensors.
 
-scikit-learn / optdigits, 10 classes, 40 train + 40 test per class, pooled to 16 inputs:
+scikit-learn / optdigits, 10 classes. Two resolutions (`fullres` arg toggles):
+
+**Full resolution — 64 px** (N=138: 64 in, 64 mono-hidden, 10 out; 120 train + 40 test per class):
 
 | Model | test acc |
 |-------|----------|
-| **Langevin monostable EP** (this work) | **0.79** (train 0.85) |
-| logreg (pooled 16) | 0.81 |
-| MLP, 1 hidden (pooled 16) | 0.88 |
-| — chance | 0.10 |
+| **Langevin monostable EP** (this work) | **0.968** (train 0.989) |
+| MLP, 1 hidden (64 px) | 0.973 |
+| logreg (64 px) | 0.958 |
+| XY phase network (paper) | 0.94 |
+| deterministic Duffing mono (paper) | 0.96 |
+| bistable readout / chance | 0.18 / 0.10 |
 
-Test accuracy climbs chance (0.11) → 0.79 over 300 iterations (CE 2.3 → 0.34), **matching the
-logistic-regression baseline on the same features**. This is the *monostable* regime — the one
-that is both required for graded multi-class readout (the bistable readout fails at chance, 0.18)
-*and* where the finite-T EP gradient is faithful and sampling mixes cleanly (Result 2). The gap
-to MLP-16 (0.88) and to the phase network (0.94, full 64 px) is partly the pooled-16 features;
-full-resolution (64 px) is the natural next scale-up.
+Test accuracy climbs chance (0.18) → **0.968** over ~320 iterations (CE 2.4 → 0.01). The Langevin
+thermodynamic EP **beats logreg (0.958) and the phase network (0.94), matches the deterministic
+Duffing monostable (0.96), and is within noise of the MLP (0.973)** — on the same 64-px features.
+
+**Pooled 16 px** (N=66, 40 train + 40 test per class, faster prototype): reaches 0.79, matching
+logreg-16 (0.81); MLP-16 0.88.
+
+Both use the *monostable* regime — the one that is both required for graded multi-class readout
+(the bistable readout fails at chance, 0.18) *and* where the finite-T EP gradient is faithful and
+sampling mixes cleanly (Result 2). Resolution is the main lever: 16 px → 64 px lifts the
+substrate from logreg-parity to phase-network-beating.
 
 ## Interpretation (ties to the paper's regime split)
 
@@ -193,5 +202,6 @@ Result 1 (Boltzmann sanity) is an inline check on `langevin_sample_batch`.
   ≥92%, mean 96.4%) — the best result here. It requires enough hidden capacity; a narrow 2-2-1
   layered net underperforms all-to-all.
 - **Generalization (done, Result 6):** the sampler drops into the multi-class monostable digits
-  pipeline unchanged and reaches ~0.79 (logreg-parity on pooled-16). Next scale-up: full 64-px
-  inputs / more hidden / more iterations to chase MLP (0.88) and the phase network (0.94).
+  pipeline unchanged and reaches **0.968 at full 64-px resolution** (N=138) — beating logreg
+  (0.958) and the phase network (0.94), matching the deterministic Duffing mono (0.96), within
+  noise of MLP (0.973). Pooled-16 gives the faster 0.79 prototype.

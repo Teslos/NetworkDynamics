@@ -23,16 +23,17 @@ include(joinpath(@__DIR__, "..", "notebooks", "EP-Duffing-Network.jl"))   # adam
 
 # ---------------- hyperparameters ----------------
 const SEED    = 1
-const NHID    = 40           # monostable hidden units
+const FULLRES = ("fullres" in ARGS)   # full 64-px inputs vs 4x4-pooled 16 (default)
+const NHID    = FULLRES ? 64 : 40     # monostable hidden units
 const A_H     = 1.0          # hidden quadratic coeff > 0  -> single well (monostable)
 const T_SAMP  = 0.30         # sampling temperature (Langevin)
 const BETA    = 0.1
 const LR      = 0.01
-const N_ITER  = 300
+const N_ITER  = FULLRES ? 450 : 300
 const BATCH   = 64
 const N_BURN  = 200
 const N_SAMPLE= 350
-const N_TRAIN_PC = 40
+const N_TRAIN_PC = FULLRES ? 120 : 40
 const N_TEST_PC  = 40
 const EVAL_EVERY = 20
 
@@ -43,8 +44,10 @@ const XALL = Float64.(raw[:, 1:64]); const YALL = raw[:, 65]
 pool4x4(v) = (img = reshape(v, 8, 8);
     [(img[bi,bj]+img[bi+1,bj]+img[bi,bj+1]+img[bi+1,bj+1])/4 for bi in 1:2:8 for bj in 1:2:8])
 poolall(X) = permutedims(reduce(hcat, [pool4x4(X[i, :]) for i in 1:size(X, 1)]))
+# feature matrix in [0,1]: full 64 px or 4x4-pooled 16
+featmat(idx) = FULLRES ? (XALL[idx, :] ./ 16.0) : (poolall(XALL[idx, :]) ./ 16.0)
 
-const NIN = 16; const NCLS = 10; const NN = NIN + NHID + NCLS
+const NIN = FULLRES ? 64 : 16; const NCLS = 10; const NN = NIN + NHID + NCLS
 const INP = collect(1:NIN); const HID = collect(NIN+1:NIN+NHID)
 const OUTc = collect(NN-NCLS+1:NN); const VARc = vcat(HID, OUTc)
 const MSK = let M = zeros(NN, NN)
@@ -127,7 +130,7 @@ for c in 0:9
     ci = shuffle(rng, findall(==(c), YALL))
     append!(tr, ci[1:N_TRAIN_PC]); append!(te, ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC])
 end
-Xtrp = poolall(XALL[tr, :]) ./ 16.0; Xtep = poolall(XALL[te, :]) ./ 16.0
+Xtrp = featmat(tr); Xtep = featmat(te)
 ytr = [cc[c] for c in YALL[tr]]; yte = [cc[c] for c in YALL[te]]
 Xtr = 2 .* Xtrp .- 1; Xte = 2 .* Xtep .- 1; Nd = length(ytr)
 Ytr = [ytr[i] == j ? 1.0 : 0.0 for i in eachindex(ytr), j in 1:NCLS]
@@ -162,7 +165,8 @@ lr_te = logreg_acc(Xtrp, ytr, Xtep, yte, NCLS); ml_te = mlp_acc(Xtrp, ytr, Xtep,
 println("\n", "="^54)
 @printf("%-30s | %-7s %-7s (chance %.2f)\n", "model", "train", "test", 1/NCLS)
 println("-"^54)
+const FEATLBL = FULLRES ? "64 px" : "pooled 16"
 @printf("%-30s | %-7.3f %-7.3f\n", "Langevin monostable EP (best)", du_tr, du_te)
-@printf("%-30s | %-7s %-7.3f\n", "logreg (pooled 16)", "-", lr_te)
-@printf("%-30s | %-7s %-7.3f\n", "MLP (pooled 16)", "-", ml_te)
+@printf("%-30s | %-7s %-7.3f\n", "logreg ($FEATLBL)", "-", lr_te)
+@printf("%-30s | %-7s %-7.3f\n", "MLP ($FEATLBL)", "-", ml_te)
 println("\nRef: deterministic mono v2 ~0.8x; XY phase net 0.94; bistable 0.18")
