@@ -225,6 +225,25 @@ function langevin_xor_accuracy(net::DuffingNetwork, data, target; T=0.08,
 end
 
 # ----------------------------------------------------------------------------
+# Layered (feedforward-symmetric) coupling mask
+# ----------------------------------------------------------------------------
+# Restrict the symmetric coupling to input<->hidden and hidden<->output edges
+# only (no input-output, no within-layer edges). The energy stays a symmetric
+# gradient system (EP/Langevin valid), but the output field now comes solely
+# from the input-driven hidden layer, so the output well is input-determined --
+# the remedy that makes the phase-network XOR robust.
+function layered_mask(N, input_index, hidden_index, output_index)
+    M = falses(N, N)
+    @inbounds for i in input_index, j in hidden_index
+        M[i, j] = true; M[j, i] = true
+    end
+    @inbounds for i in hidden_index, j in output_index
+        M[i, j] = true; M[j, i] = true
+    end
+    return M
+end
+
+# ----------------------------------------------------------------------------
 # Temperature annealing (hot -> cold)
 # ----------------------------------------------------------------------------
 # Geometric cooling schedule T(frac) = T_hi * (T_lo/T_hi)^frac, frac in [0,1].
@@ -237,12 +256,14 @@ function train_langevin_anneal!(net::DuffingNetwork, data, target; beta=0.1,
                                 T_hi=0.20, T_lo=0.06, lr=0.03, N_epoch=300,
                                 symmetric=true, init_noise=0.5, dt=0.02,
                                 n_burn=1200, n_sample=2500, print_every=10^9,
-                                rng=Random.default_rng())
+                                mask=nothing, rng=Random.default_rng())
     N = net.N
     N_data = size(data, 1)
     cost_history = zeros(N_epoch)
     s_W = zeros(N, N); r_W = zeros(N, N)
     s_h = zeros(N);    r_h = zeros(N)
+    # Layered: keep only the allowed edges from the start.
+    mask === nothing || (net.W .*= mask)
     best_cost = Inf; best_W = copy(net.W); best_h = copy(net.h)
 
     for epoch in 1:N_epoch
@@ -255,10 +276,12 @@ function train_langevin_anneal!(net::DuffingNetwork, data, target; beta=0.1,
 
         gW, gh, cost, _ = EP_langevin_gradient(net, x0, target, beta, T;
             symmetric=symmetric, dt=dt, n_burn=n_burn, n_sample=n_sample, rng=rng)
+        mask === nothing || (gW .*= mask)
 
         net.W, s_W, r_W = adam_update(net.W, gW, lr, epoch, s_W, r_W)
         net.W = (net.W + net.W') / 2
         net.W[diagind(net.W)] .= 0
+        mask === nothing || (net.W .*= mask)
         net.h, s_h, r_h = adam_update(net.h, gh, lr, epoch, s_h, r_h)
 
         cost_history[epoch] = cost

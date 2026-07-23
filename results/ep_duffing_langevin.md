@@ -114,6 +114,31 @@ and gets **3/8 seeds to a full XOR solve** (vs 1/8). The **annealed training is 
 On the strong seeds this reaches parity with the phase network (100%); a minority of seeds
 (e.g. 58%) still stall, tracking the residual bistable gradient-variance of Result 2.
 
+## Result 5 — a layered (feedforward-symmetric) topology removes the stalls
+
+The remaining stalls (Result 4) come from the all-to-all output well not being reliably
+input-determined. The paper's phase-network remedy is a **layered (feedforward-symmetric)**
+architecture: restrict the symmetric coupling to input↔hidden and hidden↔output edges only, so
+the output field comes solely from the input-driven hidden layer. `layered_mask` +
+`scripts/duffing_langevin_layered_xor.jl` (annealed, 8 seeds, full-range test inits):
+
+| Config | mean | median | min seed | solved ≥99% |
+|--------|------|--------|----------|-------------|
+| all-to-all (N=5), annealed | 90.1% | 93.8% | **58%** (stall) | 3/8 |
+| layered 2-2-1 (N=5) | 80.7% | 81.2% | 62% | 0/8 |
+| layered 2-3-1 (N=6) | 85.9% | 89.6% | 62% | 0/8 |
+| **layered 2-4-1 (N=7)** | **96.4%** | 95.8% | **92%** (no stall) | 3/8 |
+
+Layering helps **only with enough hidden capacity** (the mask removes edges, so a 2-hidden
+layered net is *worse* than all-to-all). At 4 hidden units the catastrophic stall is gone —
+**every seed ≥92%**, mean 96.4% — matching the paper's layered phase-network result (~95%, all
+seeds solved). This is the best Duffing XOR result in this study.
+
+Note layering's benefit here is capacity/structure, not symmetry breaking: unlike the paper's
+phase network, the Duffing bias field `h` already breaks the ±well symmetry, which is why a
+capacity-reduced 2-2-1 layered net underperforms and the win only appears once the hidden layer
+is wide enough.
+
 ## Interpretation (ties to the paper's regime split)
 
 The two regimes of Result 2 mirror the paper's substrate-independent split exactly:
@@ -138,9 +163,8 @@ Result 1 (Boltzmann sanity) is an inline check on `langevin_sample_batch`.
 
 - **Temperature annealing (done, Result 4)** lifts fixed-T ~80% → ~90% and solves several seeds
   fully; the annealed training is the main driver.
-- **Remaining seed stalls:** a minority of seeds still fail, tracking the bistable
-  gradient-variance of Result 2. Routes past it: more samples / epochs at the cold end, a
-  **layered (feedforward-symmetric) topology** (as in the paper's phase-network XOR remedy), or a
-  slower / longer cooling schedule.
+- **Seed stalls solved (Result 5):** a **layered 2-4-1** topology removes the stalls (every seed
+  ≥92%, mean 96.4%) — the best result here. It requires enough hidden capacity; a narrow 2-2-1
+  layered net underperforms all-to-all.
 - **Generalization:** the sampler matches the `relax_batch` contract, so it can be dropped into
   the XY substrate and the digits scripts (deferred).
