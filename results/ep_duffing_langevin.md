@@ -139,6 +139,32 @@ phase network, the Duffing bias field `h` already breaks the ±well symmetry, wh
 capacity-reduced 2-2-1 layered net underperforms and the win only appears once the hidden layer
 is wide enough.
 
+## Result 6 — multi-class digits (Langevin EP generalizes beyond XOR)
+
+The sampler drops into the multi-class pipeline unchanged (it matches the deterministic
+`relax_batch` contract). `scripts/duffing_langevin_digits.jl` reuses the monostable Duffing
+digits architecture of `scripts/duffing_digits_mono_v2.jl` — 16 pooled inputs → monostable
+hidden (40, `a_h=1`) → 10 linear output cells, layered coupling, softmax-CE readout — and swaps
+only the relaxer (Langevin) and the gradient (thermal-average contrast with the softmax-CE
+nudge and common random numbers). Efficiency note: the batch-summed correlation the gradient
+needs is `Σ_t XᵀX` (one gemm per sampled step), so no per-sample `N×N` tensors.
+
+scikit-learn / optdigits, 10 classes, 40 train + 40 test per class, pooled to 16 inputs:
+
+| Model | test acc |
+|-------|----------|
+| **Langevin monostable EP** (this work) | **0.79** (train 0.85) |
+| logreg (pooled 16) | 0.81 |
+| MLP, 1 hidden (pooled 16) | 0.88 |
+| — chance | 0.10 |
+
+Test accuracy climbs chance (0.11) → 0.79 over 300 iterations (CE 2.3 → 0.34), **matching the
+logistic-regression baseline on the same features**. This is the *monostable* regime — the one
+that is both required for graded multi-class readout (the bistable readout fails at chance, 0.18)
+*and* where the finite-T EP gradient is faithful and sampling mixes cleanly (Result 2). The gap
+to MLP-16 (0.88) and to the phase network (0.94, full 64 px) is partly the pooled-16 features;
+full-resolution (64 px) is the natural next scale-up.
+
 ## Interpretation (ties to the paper's regime split)
 
 The two regimes of Result 2 mirror the paper's substrate-independent split exactly:
@@ -166,5 +192,6 @@ Result 1 (Boltzmann sanity) is an inline check on `langevin_sample_batch`.
 - **Seed stalls solved (Result 5):** a **layered 2-4-1** topology removes the stalls (every seed
   ≥92%, mean 96.4%) — the best result here. It requires enough hidden capacity; a narrow 2-2-1
   layered net underperforms all-to-all.
-- **Generalization:** the sampler matches the `relax_batch` contract, so it can be dropped into
-  the XY substrate and the digits scripts (deferred).
+- **Generalization (done, Result 6):** the sampler drops into the multi-class monostable digits
+  pipeline unchanged and reaches ~0.79 (logreg-parity on pooled-16). Next scale-up: full 64-px
+  inputs / more hidden / more iterations to chase MLP (0.88) and the phase network (0.94).
