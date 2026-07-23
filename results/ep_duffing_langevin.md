@@ -89,6 +89,31 @@ Landau annealing. Thermal sampling recovers basin-averaging-level robustness as 
 property. It does *not* reach the phase-network's robust 10/10 solve; the residual seed variance
 tracks the bistable gradient-variance of Result 2.
 
+## Result 4 — temperature annealing (hot → cold) closes most of the gap
+
+Cooling the temperature during training and readout combines exploration with a sharp final
+decision. `scripts/duffing_langevin_anneal_xor.jl`:
+
+- **Annealed training:** T geometrically cooled `T_hi=0.20 → T_lo=0.06` over epochs — hot epochs
+  mix / escape wells and give lower-variance gradients, cold epochs sharpen the landscape.
+- **Annealed readout:** the free relaxation ramps `T_hi=0.15 → T_lo=0.05` within a single run, so
+  the trained field pulls each output to the input-selected well (warm) then commits it (cold).
+  A *fixed* cold readout would re-pin in whatever well the init landed in.
+
+Robust XOR (8 training seeds, full-range test inits):
+
+| Config | mean | median | solved ≥99% | per-seed % |
+|--------|------|--------|-------------|------------|
+| fixed-T (0.13–0.17), fixed readout | ~80% | ~80% | 1/8 | (Result 3) |
+| fixed-T (0.15) train + annealed readout | 83.9% | 85.4% | 0/8 | 88,96,96,62,83,79,75,92 |
+| **annealed train + annealed readout** | **90.1%** | **93.8%** | **3/8** | 100,96,100,88,92,88,58,100 |
+
+Annealing lifts the fixed-T thermodynamic result by **~+10 points** (mean 80% → 90%, median → 94%)
+and gets **3/8 seeds to a full XOR solve** (vs 1/8). The **annealed training is the main driver**
+(fixed-T train + annealed readout only reaches ~84%); the annealed readout is a smaller boost.
+On the strong seeds this reaches parity with the phase network (100%); a minority of seeds
+(e.g. 58%) still stall, tracking the residual bistable gradient-variance of Result 2.
+
 ## Interpretation (ties to the paper's regime split)
 
 The two regimes of Result 2 mirror the paper's substrate-independent split exactly:
@@ -111,11 +136,11 @@ Result 1 (Boltzmann sanity) is an inline check on `langevin_sample_batch`.
 
 ## Limitations / next steps
 
-- **Higher robustness:** more samples / epochs (reduce gradient variance), a **lower readout
-  temperature** at test time (sharpen `sign⟨x_out⟩`), or a shallower-well / larger-hidden net.
-- **Temperature annealing** (hot→cold during training) would combine exploration with a sharp
-  final readout — deferred here because the goal was a *fixed-T* thermodynamic result.
+- **Temperature annealing (done, Result 4)** lifts fixed-T ~80% → ~90% and solves several seeds
+  fully; the annealed training is the main driver.
+- **Remaining seed stalls:** a minority of seeds still fail, tracking the bistable
+  gradient-variance of Result 2. Routes past it: more samples / epochs at the cold end, a
+  **layered (feedforward-symmetric) topology** (as in the paper's phase-network XOR remedy), or a
+  slower / longer cooling schedule.
 - **Generalization:** the sampler matches the `relax_batch` contract, so it can be dropped into
   the XY substrate and the digits scripts (deferred).
-- The bistable gradient-variance (Result 2) is the fundamental limiter; annealing or a layered
-  (feedforward-symmetric) topology are the natural routes past it.

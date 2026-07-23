@@ -225,6 +225,115 @@ function langevin_xor_accuracy(net::DuffingNetwork, data, target; T=0.08,
 end
 
 # ----------------------------------------------------------------------------
+# Temperature annealing (hot -> cold)
+# ----------------------------------------------------------------------------
+# Geometric cooling schedule T(frac) = T_hi * (T_lo/T_hi)^frac, frac in [0,1].
+anneal_T(T_hi, T_lo, frac) = T_hi * (T_lo / T_hi)^frac
+
+# Annealed training: hot epochs mix / escape wells and give lower-variance
+# gradients (good statistics), cold epochs sharpen the landscape. Otherwise
+# identical to train_langevin!.
+function train_langevin_anneal!(net::DuffingNetwork, data, target; beta=0.1,
+                                T_hi=0.20, T_lo=0.06, lr=0.03, N_epoch=300,
+                                symmetric=true, init_noise=0.5, dt=0.02,
+                                n_burn=1200, n_sample=2500, print_every=10^9,
+                                rng=Random.default_rng())
+    N = net.N
+    N_data = size(data, 1)
+    cost_history = zeros(N_epoch)
+    s_W = zeros(N, N); r_W = zeros(N, N)
+    s_h = zeros(N);    r_h = zeros(N)
+    best_cost = Inf; best_W = copy(net.W); best_h = copy(net.h)
+
+    for epoch in 1:N_epoch
+        frac = N_epoch == 1 ? 1.0 : (epoch - 1) / (N_epoch - 1)
+        T = anneal_T(T_hi, T_lo, frac)
+
+        x0 = zeros(N_data, N)
+        x0[:, net.input_index] .= data
+        x0[:, net.variable_index] .= init_noise * randn(rng, N_data, length(net.variable_index))
+
+        gW, gh, cost, _ = EP_langevin_gradient(net, x0, target, beta, T;
+            symmetric=symmetric, dt=dt, n_burn=n_burn, n_sample=n_sample, rng=rng)
+
+        net.W, s_W, r_W = adam_update(net.W, gW, lr, epoch, s_W, r_W)
+        net.W = (net.W + net.W') / 2
+        net.W[diagind(net.W)] .= 0
+        net.h, s_h, r_h = adam_update(net.h, gh, lr, epoch, s_h, r_h)
+
+        cost_history[epoch] = cost
+        if cost < best_cost
+            best_cost = cost; best_W = copy(net.W); best_h = copy(net.h)
+        end
+        if epoch % print_every == 0
+            println("Epoch $epoch (T=$(round(T,digits=3))): free cost = $(round(cost, sigdigits=4))")
+        end
+    end
+
+    net.W = best_W; net.h = best_h
+    println("Best free-phase cost over annealed training: ", round(best_cost, sigdigits=4))
+    return cost_history
+end
+
+# Annealed READOUT: ramp T from T_hi down to T_lo within a single run, then
+# average positions over a final cold window. The warm start lets the trained
+# field pull each output to the input-selected well; cooling then commits it.
+# A fixed cold readout instead would re-pin in whatever well the init landed in.
+function langevin_anneal_readout(net::DuffingNetwork, x0_batch, target_batch;
+                                 T_hi=0.15, T_lo=0.05, n_ramp=4000, n_read=2000,
+                                 dt=0.02, beta=0.0, rng=Random.default_rng())
+    N_batch, N = size(x0_batch)
+    a, c = net.a, net.c
+    W = net.W
+    hrow = reshape(net.h, 1, N)
+    inp = net.input_index
+    out = net.output_index
+
+    X = copy(x0_batch)
+    Xin = x0_batch[:, inp]
+    @views X[:, inp] .= Xin
+    F = zeros(N_batch, N)
+    xi = zeros(N_batch, N)
+    mean_x = zeros(N_batch, N)
+
+    for step in 1:(n_ramp + n_read)
+        frac = min(step, n_ramp) / n_ramp
+        T = anneal_T(T_hi, T_lo, frac)
+        @. F = -(c * X^3 + a * X)
+        mul!(F, X, W, 1.0, 1.0)
+        F .+= hrow
+        if beta != 0.0
+            @views F[:, out] .-= beta .* (X[:, out] .- target_batch)
+        end
+        randn!(rng, xi)
+        @. X += F * dt + sqrt(2 * T * dt) * xi
+        @views X[:, inp] .= Xin
+        if step > n_ramp
+            mean_x .+= X
+        end
+    end
+    mean_x ./= n_read
+    return mean_x
+end
+
+function langevin_anneal_xor_accuracy(net::DuffingNetwork, data, target;
+                                      T_hi=0.15, T_lo=0.05, n_ramp=4000, n_read=2000,
+                                      dt=0.02, init_range=1.0, rng=Random.default_rng())
+    n = size(data, 1)
+    outs = zeros(n); correct = 0
+    for i in 1:n
+        x0 = zeros(1, net.N)
+        x0[1, net.input_index] .= data[i, :]
+        x0[1, net.variable_index] .= init_range .* (2 .* rand(rng, length(net.variable_index)) .- 1)
+        mx = langevin_anneal_readout(net, x0, reshape(target[i, :], 1, :);
+            T_hi=T_hi, T_lo=T_lo, n_ramp=n_ramp, n_read=n_read, dt=dt, rng=rng)
+        outs[i] = mx[1, net.output_index[1]]
+        correct += (sign(outs[i]) == sign(target[i, 1])) ? 1 : 0
+    end
+    return correct / n, outs
+end
+
+# ----------------------------------------------------------------------------
 # Script entry point (define EP_DUFFING_LANGEVIN_SKIP_RUN = true to only load).
 # ----------------------------------------------------------------------------
 function run_langevin_experiment(; N=5, beta=0.1, T=0.08, lr=0.02, N_epoch=800, seed=1,
