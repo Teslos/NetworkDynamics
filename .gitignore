@@ -11,3 +11,6 @@
 # Julia MCP server (Node bridge): deps and runtime logs
 mcp-julia/node_modules/
 mcp-julia/.logs/
+
+# Claude Code skills (cloned/local tooling, e.g. thrml)
+.claude/skills/
