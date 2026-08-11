@@ -28,7 +28,10 @@ using OrdinaryDiffEq, LinearAlgebra, Statistics, Random, Distributions, Printf, 
 # ----- args
 n_arg = findfirst(==("--n"), ARGS)
 const NSAMP = n_arg === nothing ? 1797 : parse(Int, ARGS[n_arg + 1])
-const SEED = 1234
+# --seed varies the sample subset, the coupling matrix, the initial conditions,
+# the train/test split and the readout init, i.e. a full end-to-end reseed.
+seed_arg = findfirst(==("--seed"), ARGS)
+const SEED = seed_arg === nothing ? 1234 : parse(Int, ARGS[seed_arg + 1])
 
 # ----- FHN reservoir params (from the original script)
 const EPS = 0.05
@@ -118,3 +121,6 @@ println(@sprintf("Nodes/samples: %d   features (trajectory length): %d", N, T))
 println(@sprintf("Train accuracy: %.4f", accuracy(pred_tr, y[tr])))
 println(@sprintf("Test  accuracy: %.4f   (paper claims 0.88)", rep.accuracy))
 println(@sprintf("Test  macro-F1: %.4f", rep.macro_f1))
+# machine-readable line for multi-seed aggregation
+println(@sprintf("RESULT seed=%d N=%d test_acc=%.4f macro_f1=%.4f",
+                 SEED, N, rep.accuracy, rep.macro_f1))
