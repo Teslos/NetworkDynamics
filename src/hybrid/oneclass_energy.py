@@ -213,19 +213,43 @@ def make_background(ztr, mode, jitter=1e-2):
     "gauss"     : N(0, I) -- features are already standardized, so this needs no
                   stored data at all, but it ignores feature correlations and so
                   places few negatives where classes actually compete.
-    "gaussfull" : N(mu, Sigma) with Sigma the (ridged) global feature covariance.
-                  Fixed O(feat^2) cost, estimated once from the unlabeled stream;
-                  negatives land on the data manifold, which is what makes the
-                  ratio informative in the contested region.
+    "gaussfull" : N(mu, Sigma) with Sigma the (ridged) sample covariance.  Needs
+                  more samples than features to be estimated well -- with ~144
+                  samples in 256 dims the ridge dominates and it degenerates
+                  towards "gauss".
+    "diag"      : N(mu, diag(var)).  Only feat parameters, so it is estimable
+                  from one class's data; keeps per-feature scale, drops
+                  correlations.
+    "lw"        : Ledoit-Wolf shrinkage of the sample covariance towards a scaled
+                  identity, with the shrinkage intensity chosen analytically.
+                  The principled middle ground when samples < features, which is
+                  exactly the causal ("first") regime.
     """
     feat = ztr.shape[1]
     mean = ztr.mean(0).astype(np.float32)
     if mode == "gauss":
         chol = np.eye(feat, dtype=np.float32)
+    elif mode == "diag":
+        var = ztr.var(axis=0, ddof=1)
+        chol = np.diag(np.sqrt(np.maximum(var, 1e-8))).astype(np.float32)
+    elif mode == "lw":
+        from sklearn.covariance import LedoitWolf
+        cov = LedoitWolf(assume_centered=False).fit(ztr).covariance_.astype(np.float64)
+        chol = np.linalg.cholesky(
+            cov + (jitter * np.trace(cov) / feat) * np.eye(feat)).astype(np.float32)
     elif mode == "gaussfull":
         cov = np.cov(ztr, rowvar=False).astype(np.float64)
-        cov += (jitter * np.trace(cov) / feat) * np.eye(feat)
-        chol = np.linalg.cholesky(cov).astype(np.float32)
+        # With fewer samples than features (the "first"/"prefix" sources early on)
+        # cov is singular; ridge until the Cholesky succeeds rather than failing.
+        ridge = jitter * np.trace(cov) / feat
+        for _ in range(8):
+            try:
+                chol = np.linalg.cholesky(cov + ridge * np.eye(feat)).astype(np.float32)
+                break
+            except np.linalg.LinAlgError:
+                ridge *= 10.0
+        else:
+            raise np.linalg.LinAlgError("background covariance not PD after ridging")
     else:
         raise ValueError(f"unknown background mode: {mode}")
 
@@ -343,18 +367,46 @@ def train_expert_ratio(z_pos, bg_sample, feat, cfg, epochs, lr, wd, seed,
     return expert, float(last)
 
 
-def train_incremental_ratio(ztr, ytr, feat, cfg, epochs, lr, wd, seed, bg_sample,
+def make_bg_factory(ztr, ytr, mode, source, jitter, n_classes=10):
+    """Where the background's own statistics are allowed to come from.
+
+    "all"    : fit Sigma on the whole training set.  Convenient, but LEAKY in a
+               class-incremental setting -- when expert 0 trains, Sigma already
+               encodes classes 1..9.  Only unlabeled second moments, but still
+               future data.
+    "first"  : fit Sigma on the first task's data only, then freeze it forever.
+               Strictly causal, and still identical for every expert -- which is
+               the property the ratio construction actually needs.
+    "prefix" : refit Sigma on classes seen so far.  Causal, but the background
+               DRIFTS, so experts are anchored to different reference measures
+               and comparability degrades.  Included to show that cost.
+    """
+    if source == "all":
+        bg = make_background(ztr, mode, jitter)
+        return lambda c: bg
+    if source == "first":
+        bg = make_background(ztr[ytr == 0], mode, jitter)
+        return lambda c: bg
+    if source == "prefix":
+        cache = {c: make_background(ztr[ytr <= c], mode, jitter) for c in range(n_classes)}
+        return lambda c: cache[c]
+    raise ValueError(f"unknown background source: {source}")
+
+
+def train_incremental_ratio(ztr, ytr, feat, cfg, epochs, lr, wd, seed, bg_factory,
                             neg_mult=1.0, langevin_frac=0.0, gamma_init=0.05,
                             use_osc=True, n_classes=10, verbose=True):
     """Class-incremental training with NO cross-expert coupling in the objective.
 
-    Each expert is trained once, against the fixed background only, and frozen.
+    Each expert is trained once, against the background only, and frozen.
     Nothing an expert learns can be affected by a class that arrives later, and
-    nothing about the arrival ORDER can change the final model.
+    (for the non-drifting backgrounds) nothing about the arrival ORDER can
+    change the final model.
     """
     experts = []
     for c in range(n_classes):
         z_c = ztr[ytr == c]
+        bg_sample = bg_factory(c)
         # Langevin hard negatives (if enabled) come from already-frozen experts,
         # so the background is no longer strictly identical across experts --
         # that is the price of harder negatives.  Off by default.
@@ -395,9 +447,13 @@ def main() -> None:
     ap.add_argument("--neg-mult", type=float, default=1.0,
                     help="negatives per positive in each minibatch")
     ap.add_argument("--bg-mode", nargs="+", default=["gauss", "gaussfull"],
-                    choices=["gauss", "gaussfull"])
+                    choices=["gauss", "gaussfull", "diag", "lw"])
     ap.add_argument("--langevin-frac", type=float, default=0.0,
                     help="fraction of negatives drawn by Langevin from frozen experts")
+    ap.add_argument("--bg-source", default="all", choices=["all", "first", "prefix"],
+                    help="which data the background's statistics may come from; "
+                         "'all' leaks future classes, 'first' is strictly causal")
+    ap.add_argument("--bg-jitter", type=float, default=1e-2)
     ap.add_argument("--gamma-init", type=float, default=0.05,
                     help="initial base-measure precision (per feature)")
     ap.add_argument("--base-only", action="store_true",
@@ -415,13 +471,14 @@ def main() -> None:
     # ---- Density-ratio experts: incremental, order-free, calibrated ----
     print("\nDensity-RATIO experts (fixed background; each expert trained ALONE):")
     for bgm in args.bg_mode:
-        bg = make_background(ztr, bgm)
-        tag = bgm + (f"+langevin{args.langevin_frac:g}" if args.langevin_frac else "")
+        bg = make_bg_factory(ztr, ytr, bgm, args.bg_source, args.bg_jitter)
+        tag = f"{bgm}/{args.bg_source}"
+        tag += f"+langevin{args.langevin_frac:g}" if args.langevin_frac else ""
         tag += " [BASE-ONLY ablation: no oscillators]" if args.base_only else ""
         print(f"  background = {tag}")
         exp = train_incremental_ratio(
             ztr, ytr, feat, cfg, epochs=args.ratio_epochs, lr=args.ratio_lr,
-            wd=args.ratio_wd, seed=args.seed, bg_sample=bg,
+            wd=args.ratio_wd, seed=args.seed, bg_factory=bg,
             neg_mult=args.neg_mult, langevin_frac=args.langevin_frac,
             gamma_init=args.gamma_init, use_osc=not args.base_only)
         S = ratio_score_matrix(exp, cfg, zte, use_osc=not args.base_only)
