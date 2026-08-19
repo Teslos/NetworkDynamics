@@ -144,10 +144,27 @@ band_of(idx) = (vec(mapslices(x -> quantile(x, 0.25), cosd[idx, :], dims=1)),
 rq1, rmed, rq3 = band_of(res_idx)
 nq1, nmed, nq3 = band_of(non_idx)
 
-figf = Figure(size=(860, 430))
-axf = Axis(figf[1, 1], xlabel="time",
-           ylabel="cos(θᵢ − θ₁)   (+1 in phase, −1 antiphase)",
-           title="Forcing-driven recognition of digit '1'  (ε=100, h=0.1, T_f=400)")
+figf = Figure(size=(880, 640))
+Label(figf[0, 1:3], "Forcing-driven recognition of digit '1'  (ε=100, h=0.1, T_f=400)",
+      fontsize=17, font=:bold)
+
+# Snapshots of the network state at three moments, so the reader can see the
+# pattern the phases encode. Node 1 is a background pixel, so a node is on the
+# stroke exactly when cos(θᵢ − θ₁) < 0: the images below are the sign of the
+# quantity plotted underneath, and nothing more.
+snap_t   = (TF, 429.0, TEND)
+snap_lab = ("a) cue at t = T_f", "b) mid-transition, t = 429", "c) recovered, t = $(Int(TEND))")
+for (c, (ts, lab)) in enumerate(zip(snap_t, snap_lab))
+    idx = argmin(abs.(tt .- ts))
+    img = -sign.(cos.(Θ[:, idx] .- Θ[1, idx]))          # +1 = on-stroke (ink)
+    axs = Axis(figf[1, c], title=lab, aspect=DataAspect(), titlesize=13)
+    heatmap!(axs, asimg(img), colormap=:grays)
+    hidedecorations!(axs)
+end
+
+axf = Axis(figf[2, 1:3], xlabel="time",
+           ylabel="cos(θᵢ − θ₁)   (+1 in phase, −1 antiphase)")
+rowsize!(figf.layout, 1, Relative(0.34))
 # a few individual traces per group, faint, for texture
 for i in res_idx[1:max(1, cld(length(res_idx), 5)):end]
     lines!(axf, tt, cosd[i, :], color=(:crimson, 0.18))
@@ -161,8 +178,14 @@ lines!(axf, tt, rmed, color=:crimson,   linewidth=2.5, label="on-stroke (resonan
 lines!(axf, tt, nmed, color=:steelblue, linewidth=2.5, label="off-stroke, median")
 vlines!(axf, [TF], color=:black, linestyle=:dash)
 text!(axf, TF + 6, 0.95; text="forcing off", align=(:left, :top))
+# mark where each snapshot above was taken
+for (c, ts) in enumerate(snap_t)
+    ts > TF + 120 && continue                       # the last one is off the zoomed axis
+    vlines!(axf, [ts], color=(:black, 0.35), linestyle=:dot)
+    text!(axf, ts, -1.06; text="($(('a':'c')[c]))", align=(:center, :bottom), fontsize=12)
+end
 xlims!(axf, TF - 20, TF + 120)       # the release and the relaxation that follows it
-axislegend(axf, position=:rb, framevisible=false)
+axislegend(axf, position=:rc, framevisible=false)
 save(joinpath(FIGDIR, "kuramoto_network_diff_phase.png"), figf)
 @printf("Forcing recognition: overlap(final,'1') = %.3f\n", overlap(solf.u[end], fp[2]))
 println("Figure saved to ", abspath(joinpath(FIGDIR, "kuramoto_network_diff_phase.png")))
