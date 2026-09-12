@@ -14,3 +14,6 @@ mcp-julia/.logs/
 
 # Claude Code skills (cloned/local tooling, e.g. thrml)
 .claude/skills/
+
+# Python bytecode
+__pycache__/
