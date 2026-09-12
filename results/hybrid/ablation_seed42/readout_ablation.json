@@ -1,0 +1,143 @@
+{
+  "seeds": [
+    42
+  ],
+  "epochs": 50,
+  "validation_fraction": 0.2,
+  "per_seed": {
+    "42": {
+      "linear": {
+        "accuracy": 0.9222222222222223,
+        "cross_entropy": 0.2120683789253235,
+        "errors": 28,
+        "samples": 360,
+        "seconds_per_sample": 2.0691788651876978e-06,
+        "selected_epoch": 39,
+        "validation_accuracy": 0.9303135888501742,
+        "stored_parameters": 3210,
+        "effective_parameters": 3210
+      },
+      "phase_uncoupled": {
+        "accuracy": 0.8916666666666667,
+        "cross_entropy": 0.3356667704052395,
+        "errors": 39,
+        "samples": 360,
+        "seconds_per_sample": 0.009429610481796165,
+        "selected_epoch": 43,
+        "validation_accuracy": 0.9233449477351916,
+        "stored_parameters": 6420,
+        "effective_parameters": 6420,
+        "analytic_check": {
+          "phase_error_median_rad": 4.76837158203125e-07,
+          "phase_error_p95_rad": 0.012987440451979637,
+          "phase_error_max_rad": 3.1353096961975098,
+          "fraction_error_above_0p1rad": 0.01861111111111111,
+          "median_rate_all": 1.0305041074752808,
+          "median_rate_of_failures": 0.21612003445625305,
+          "median_rate_of_matches": 1.038368821144104,
+          "prediction_agreement": 0.9805555555555555,
+          "undetermined_entries": 0,
+          "total_entries": 3600
+        }
+      },
+      "phase_coupled": {
+        "accuracy": 0.9277777777777778,
+        "cross_entropy": 0.2739560127258301,
+        "errors": 26,
+        "samples": 360,
+        "seconds_per_sample": 0.005881672381009492,
+        "selected_epoch": 42,
+        "validation_accuracy": 0.9442508710801394,
+        "stored_parameters": 6520,
+        "effective_parameters": 6465
+      },
+      "_pairs": {
+        "linear_vs_phase_uncoupled": {
+          "both_correct": 314,
+          "both_wrong": 21,
+          "linear_only": 18,
+          "phase_uncoupled_only": 7,
+          "disagreements": 31
+        },
+        "linear_vs_phase_coupled": {
+          "both_correct": 325,
+          "both_wrong": 19,
+          "linear_only": 7,
+          "phase_coupled_only": 9,
+          "disagreements": 19
+        },
+        "phase_uncoupled_vs_phase_coupled": {
+          "both_correct": 314,
+          "both_wrong": 19,
+          "phase_uncoupled_only": 7,
+          "phase_coupled_only": 20,
+          "disagreements": 30
+        }
+      }
+    }
+  },
+  "summary": {
+    "linear": {
+      "accuracy_mean": 0.9222222222222223,
+      "accuracy_std": NaN,
+      "accuracies": [
+        0.9222222222222223
+      ],
+      "errors_mean": 28.0,
+      "stored_parameters": 3210,
+      "effective_parameters": 3210,
+      "milliseconds_per_sample_mean": 0.0020691788651876976
+    },
+    "phase_uncoupled": {
+      "accuracy_mean": 0.8916666666666667,
+      "accuracy_std": NaN,
+      "accuracies": [
+        0.8916666666666667
+      ],
+      "errors_mean": 39.0,
+      "stored_parameters": 6420,
+      "effective_parameters": 6420,
+      "milliseconds_per_sample_mean": 9.429610481796166
+    },
+    "phase_coupled": {
+      "accuracy_mean": 0.9277777777777778,
+      "accuracy_std": NaN,
+      "accuracies": [
+        0.9277777777777778
+      ],
+      "errors_mean": 26.0,
+      "stored_parameters": 6520,
+      "effective_parameters": 6465,
+      "milliseconds_per_sample_mean": 5.881672381009492
+    }
+  },
+  "paired_differences": {
+    "phase_uncoupled_minus_linear": {
+      "mean": -0.030555555555555558,
+      "std": NaN,
+      "per_seed": [
+        -0.030555555555555558
+      ],
+      "wins": 0,
+      "losses": 1
+    },
+    "phase_coupled_minus_linear": {
+      "mean": 0.005555555555555536,
+      "std": NaN,
+      "per_seed": [
+        0.005555555555555536
+      ],
+      "wins": 1,
+      "losses": 0
+    },
+    "phase_coupled_minus_phase_uncoupled": {
+      "mean": 0.036111111111111094,
+      "std": NaN,
+      "per_seed": [
+        0.036111111111111094
+      ],
+      "wins": 1,
+      "losses": 0
+    }
+  }
+}
