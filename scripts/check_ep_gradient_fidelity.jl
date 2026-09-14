@@ -169,13 +169,25 @@ elseif SUBSTRATE == "xy"
 
     XY_BLOCKS = [("weights", 1:n_w), ("h", n_w+1:n_w+N), ("psi", n_w+N+1:n_w+2N)]
 
+    # The XY nudge implements the derivative of Wang's LOG phase cost
+    # C = -sum log((1+cos d)/2), not of the cosine deviation reported by
+    # `batch_costs` (see notebooks/EP-XY-Network-Claude.jl). Differencing the
+    # cosine cost here -- as this script did until 2026-09-12 -- validates the EP
+    # estimate against a different objective: the two derivatives differ by a
+    # per-output factor sec^2(d/2), which is 1 only at d = 0. The finite-
+    # difference reference therefore uses the log cost; set XY_FD_COST=cos to
+    # reproduce the old, mismatched comparison for the record.
+    const XY_FD_COST = get(ENV, "XY_FD_COST", "log")
+    xy_loss(eq) = XY_FD_COST == "cos" ? batch_costs(eq, target, OUTPUT_IDX)[1] :
+                                        batch_log_cost(eq, target, OUTPUT_IDX)
+
     function eval_point(label, theta0)
         W0, bias0 = unpack(theta0)
         P0 = warm_start(W0, bias0)
         loss_fn = function (theta)
             W, bias = unpack(theta)
             eq = run_network_batch(P0, T, W, bias, target, 0.0, INPUT_IDX, OUTPUT_IDX)
-            return batch_costs(eq, target, OUTPUT_IDX)[1]
+            return xy_loss(eq)
         end
         ep_grad_fn = function (theta, beta)
             W, bias = unpack(theta)
@@ -188,6 +200,9 @@ elseif SUBSTRATE == "xy"
     end
 
     println("EP gradient fidelity -- XY / Kuramoto phase network (XOR), N=$N")
+    println("finite-difference reference: ", XY_FD_COST == "cos" ?
+            "cosine deviation (MISMATCHED with the nudge -- for comparison only)" :
+            "Wang log phase cost -log((1+cos d)/2) == the objective the nudge descends")
 
     rng = MersenneTwister(7)
     net = SP_XY_Network(N, N_EV, DT, INPUT_IDX, OUTPUT_IDX)
