@@ -3,6 +3,16 @@
 Scripts: `scripts/run_fhn_digits.jl` (now with `--mode`), ablations in the session
 scratchpad. Runs: 2026-09-13.
 
+> **Superseded implementation note (2026-09-14).** This file records the
+> historical masked joint-solve experiment on branch `fhn-digits-seed-sweep`.
+> The claim below that masking was *exactly* equivalent to independent query
+> insertion overlooked adaptive-solver cross-talk: test states still influenced
+> the shared solver's accepted step sequence, and at production tolerances this
+> measurably changed training trajectories. Branch
+> `fhn-digit-inductive-redesign` instead solves and caches the training
+> population once, then solves every query independently. See
+> `results/fhn_digit_inductive_redesign.md` for the design and comparison plan.
+
 ## The problem
 
 `run_fhn_digits.jl` — and the original it reproduces,
@@ -56,17 +66,17 @@ does **not** need is the test set inside the network.
 
 ## The repair: the training batch is the reservoir
 
-`--mode fixed_reservoir` zeroes the columns of the coupling matrix belonging to
+The historical `--mode fixed_reservoir` zeroes the columns of the coupling matrix belonging to
 test nodes, so **no node receives from a test node**. Each test node then evolves
-under its own drive plus the training nodes only. This is not an approximation:
-since train dynamics are independent of the test set, it is exactly equivalent to
-inserting each test sample *on its own* into a reservoir made of the training
-batch. No test sample influences the training representation or any other test
-sample, so the system is inductive.
+under its own drive plus the training nodes only. This removes the dynamical
+path from test nodes into training nodes, but it does not make a shared adaptive
+solve numerically independent: all states still participate in the solver's
+error norm. The redesigned branch implements the intended equivalence literally
+with a separate cached training solve and independent single-query solves.
 
-It is also cheap to deploy. The train trajectories do not depend on the query, so
-they are computed once and cached; a new sample then costs a single-node solve
-driven by its own input plus the cached field, not a 1797-node solve.
+The redesigned version is also cheap to deploy. The train trajectories are
+computed once and cached; a new sample then costs a single-node solve driven by
+its own input plus the cached field, not a 1797-node solve.
 
 ## Full resolution (N=1797, 3 seeds per mode)
 
@@ -104,9 +114,9 @@ clean control if it ever did.
 
 ## Recommendation
 
-1. Report `fixed_reservoir` as the FHN digit result. The number is unchanged
-   within noise (0.930 ± 0.012 vs the transductive 0.933 ± 0.008), and it is a
-   deployable classifier that can honestly be compared with inductive baselines.
+1. Regenerate the FHN digit result with the true separate-solve implementation
+   before using it in the paper. Do not treat the historical `fixed_reservoir`
+   numbers as a fully inductive result.
 2. Describe what the reservoir *is*: the training population, with a query
    coupled into it — not a reservoir in the usual sense of fixed internal state
    driven by one sample at a time.

@@ -65,6 +65,13 @@ julia --project=. scripts/run_ude_ablation.jl               # B8
 Add `--quick` to any for a fast smoke run. Figures are written to
 `results/figures/` (gitignored); tables to this directory.
 
+On branch `fhn-digit-inductive-redesign`, the digit command uses a true
+train-only fit/cache followed by independent query solves. Use
+`--normalization per_edge` to isolate that repair from the new, recommended
+size-independent `row_total` coupling. The comparison protocol is documented in
+`results/fhn_digit_inductive_redesign.md`; no redesigned full-resolution number
+is claimed until the multi-seed workstation runs finish.
+
 ---
 
 ## Findings by experiment

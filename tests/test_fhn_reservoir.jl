@@ -1,136 +1,87 @@
-# Regression tests for the FHN digit reservoir (scripts/run_fhn_digits.jl).
+# Regression tests for the production FHN digit classifier.
 #
-# These cover the three properties the inductive redesign rests on, each of
-# which was broken or unverified at some point:
-#
-#   1. Reproducibility -- a seed must reproduce a run. Two unseeded sources were
-#      found here: the spike encoder drew from the global RNG, and Flux's `Dense`
-#      initialised the readout from the global RNG even when an `rng` was passed.
-#   2. Test-input isolation -- in `fixed_reservoir` mode, the training nodes must
-#      be unaffected by the test inputs. This is what makes the classifier
-#      inductive rather than transductive.
-#   3. Batched == individual -- a test node's trajectory must not depend on which
-#      other test samples happen to be in the batch, which is what licenses the
-#      claim that the mode is equivalent to inserting each query on its own.
-#
-# The dynamics below mirror scripts/run_fhn_digits.jl; properties 2 and 3 are
-# structural facts about the masked coupling, so they are checked directly on the
-# integrator rather than through the script.
+# These tests deliberately call the same fit/feature/predict API used by
+# scripts/run_fhn_digits.jl. In particular, they exercise the production solver
+# tolerances; a test-only copy with tighter tolerances previously hid numerical
+# cross-talk between training and test nodes in a joint adaptive solve.
 
 using Test
-using OrdinaryDiffEq, LinearAlgebra, Statistics, Random, Distributions
+using Random
+using LinearAlgebra
 
-include("../src/utils/spikerate.jl")
-include("../src/baselines/baseline_utils.jl")
-include("../src/baselines/baseline_models.jl")
-using .spikerate, .BaselineUtils, .BaselineModels
+include("../src/baselines/fhn_digit_classifier.jl")
+using .FHNDigitClassifier
 
-const RES_EPS = 0.05
-const RES_A = 0.5
-const RES_R0 = 0.5
-const RES_SIGMA = 0.72
+@testset "FHN digit classifier" begin
+    @testset "sample encoding is reproducible and batch-independent" begin
+        X = Float64.(rand(Xoshiro(1), 0:16, 8, 6))
+        S = encode_digit_sequences(X; nsteps=3, seed=42)
+        @test S == encode_digit_sequences(X; nsteps=3, seed=42)
+        @test S != encode_digit_sequences(X; nsteps=3, seed=43)
 
-"Complete-graph diffusive coupling, optionally masking the columns of `masked`."
-function build_coupling(n, rng; masked=Int[])
-    W = [pdf(Normal(), r) for r in (2 .* rand(rng, n, n) .- 1)]
-    W = RES_SIGMA .* (W .+ W') ./ 2
-    W[diagind(W)] .= 0
-    isempty(masked) || (W[:, masked] .= 0.0)
-    return W
-end
-
-"Relax the reservoir driven by `S` (n, T). Returns u-trajectories (n, T)."
-function relax(S, W, z0)
-    n, T = size(S)
-    rowsum = vec(sum(W, dims=2))
-    function rhs!(dz, z, _, t)
-        u = @view z[1:n]; v = @view z[n+1:2n]
-        du = @view dz[1:n]; dv = @view dz[n+1:2n]
-        i = t <= 1 ? 1 : min(floor(Int, t), T - 1)
-        f = t <= 1 ? 0.0 : t - i
-        g = (1 - f) .* @view(S[:, i]) .+ f .* @view(S[:, min(i + 1, T)])
-        c = W * u .- rowsum .* u
-        @. du = g + u - u^3 / 3 - v + c
-        @. dv = (g * RES_R0 + u - RES_A) * RES_EPS
-        return nothing
-    end
-    sol = solve(ODEProblem(rhs!, z0, (0.0, Float64(T))), Tsit5();
-                saveat=1.0:1.0:T, save_idxs=1:n, reltol=1e-8, abstol=1e-10)
-    return Array(sol)
-end
-
-@testset "FHN reservoir" begin
-
-    @testset "spike encoder is reproducible from an explicit rng" begin
-        data = rand(Xoshiro(1), 6, 8)
-        a = spikerate.rate(data, 4; rng=Xoshiro(42))
-        b = spikerate.rate(data, 4; rng=Xoshiro(42))
-        c = spikerate.rate(data, 4; rng=Xoshiro(43))
-        @test a == b                      # same seed, same spikes
-        @test a != c                      # different seed, different spikes
-        @test all(x -> x in (false, true, 0, 1), a)
+        permutation = [4, 1, 6, 2, 5, 3]
+        @test encode_digit_sequences(X[:, permutation]; nsteps=3, seed=42) ==
+              S[permutation, :]
+        @test encode_digit_sequences(X[:, 3:3]; nsteps=3, seed=42)[1, :] ==
+              S[3, :]
     end
 
-    @testset "readout fit is reproducible from an explicit rng" begin
-        X = randn(Xoshiro(5), 6, 40)
-        Y = zeros(3, 40); for j in 1:40; Y[rand(Xoshiro(j), 1:3), j] = 1.0; end
-        m1 = train_logreg(X, Y; epochs=20, rng=Xoshiro(7))
-        m2 = train_logreg(X, Y; epochs=20, rng=Xoshiro(7))
-        m3 = train_logreg(X, Y; epochs=20, rng=Xoshiro(8))
-        @test predict_nn(m1, X) == predict_nn(m2, X)
-        @test m1.weight == m2.weight
-        @test m1.weight != m3.weight
+    @testset "coupling strength has a size-independent meaning" begin
+        sigma = 0.72
+        for n in (5, 13)
+            W = build_fhn_coupling(
+                n, sigma; rng=Xoshiro(10), normalization=:row_total)
+            @test diag(W) == zeros(n)
+            @test all(isapprox.(vec(sum(W, dims=2)), sigma; atol=1e-12))
+        end
+
+        W_legacy = build_fhn_coupling(
+            13, sigma; rng=Xoshiro(10), normalization=:per_edge)
+        @test !all(isapprox.(vec(sum(W_legacy, dims=2)), sigma; atol=1e-12))
+        @test_throws ArgumentError build_fhn_coupling(
+            5, sigma; normalization=:unknown)
     end
 
-    # ---- structural properties of the fixed_reservoir masking ----------------
-    n, T = 12, 24
-    train_idx, test_idx = collect(1:8), collect(9:12)
-    rng = Xoshiro(11)
-    S = Float64.(rand(rng, n, T) .< 0.3)
-    W_masked = build_coupling(n, Xoshiro(3); masked=test_idx)
-    W_full = build_coupling(n, Xoshiro(3))
-    z0 = rand(Xoshiro(4), 2n)
+    @testset "fit is seeded and prediction is genuinely inductive" begin
+        rng = Xoshiro(11)
+        X_train = Float64.(rand(rng, 0:16, 8, 12))
+        y_train = repeat(0:2, inner=4)
+        fit_args = (
+            nsteps=2, seed=7, sigma=0.72, normalization=:row_total,
+            epochs=8,
+        )
 
-    @testset "test inputs cannot reach the training nodes" begin
-        U_ref = relax(S, W_masked, z0)
-        S_perturbed = copy(S)
-        S_perturbed[test_idx, :] .= 1.0 .- S_perturbed[test_idx, :]   # flip every test spike
-        U_perturbed = relax(S_perturbed, W_masked, z0)
-        train_shift = maximum(abs, U_ref[train_idx, :] .- U_perturbed[train_idx, :])
-        test_shift = maximum(abs, U_ref[test_idx, :] .- U_perturbed[test_idx, :])
+        model = fit_fhn_digit_classifier(X_train, y_train; fit_args...)
+        repeated = fit_fhn_digit_classifier(X_train, y_train; fit_args...)
+        @test model.train_states == repeated.train_states
+        @test model.query_weights == repeated.query_weights
+        @test model.query_initial_state == repeated.query_initial_state
+        @test model.training_features == repeated.training_features
+        @test model.readout.weight == repeated.readout.weight
+        @test size(model.train_states) == (length(y_train), 16)
+        @test model.training_features == fhn_digit_features(model, X_train)
 
-        # The masked rows make the training nodes mathematically independent of
-        # the test inputs, but this is NOT bit-identical, and deliberately tested
-        # as such: the adaptive solver chooses its steps from an error norm over
-        # ALL states, so perturbing the test nodes shifts the step sequence and
-        # moves the training values at solver-tolerance level (~1e-8 here, with
-        # reltol 1e-8). The residual channel is numerical, not dynamical, and it
-        # disappears once the training reservoir is integrated in its own solve
-        # and cached -- at which point this assertion should tighten to `==`.
-        # Measured at reltol 1e-8: train_shift ~ 3e-6, test_shift ~ 1. The bound
-        # is on the SEPARATION rather than an absolute value, because the
-        # residual scales with the solver tolerance, so a looser tolerance (as
-        # in the script, which uses the defaults) will show a larger one.
-        @test train_shift < 1e-4
-        @test train_shift < test_shift / 1e3
-        @test test_shift > 1e-2          # the test nodes really did move
+        X_query = Float64.(rand(rng, 0:16, 8, 4))
+        F_batch = fhn_digit_features(model, X_query)
 
-        # control: without the mask the same perturbation moves the training
-        # nodes by orders of magnitude more, i.e. the assertion above can fail.
-        V_ref = relax(S, W_full, z0)
-        V_perturbed = relax(S_perturbed, W_full, z0)
-        @test maximum(abs, V_ref[train_idx, :] .- V_perturbed[train_idx, :]) > 1e-2
-    end
+        # Every query runs in its own two-state ODE against an immutable cached
+        # train reservoir. Its trajectory is therefore exactly unchanged by
+        # batching, order, or unrelated query values.
+        for j in axes(X_query, 2)
+            @test F_batch[:, j] ==
+                  fhn_digit_features(model, X_query[:, j:j])[:, 1]
+        end
+        permutation = [3, 1, 4, 2]
+        @test fhn_digit_features(model, X_query[:, permutation]) ==
+              F_batch[:, permutation]
 
-    @testset "a test node does not depend on the rest of the test batch" begin
-        U_all = relax(S, W_masked, z0)
-        keep = vcat(train_idx, [test_idx[1]])          # train set + ONE query
-        S_one = S[keep, :]
-        W_one = W_masked[keep, keep]
-        z0_one = vcat(z0[keep], z0[n .+ keep])
-        U_one = relax(S_one, W_one, z0_one)
-        # the query is the last row of the reduced system
-        @test isapprox(U_all[test_idx[1], :], U_one[end, :]; rtol=1e-5, atol=1e-6)
-        @test isapprox(U_all[train_idx, :], U_one[1:length(train_idx), :]; rtol=1e-5, atol=1e-6)
+        unrelated = Float64.(rand(rng, 0:16, 8, 1))
+        F_extended = fhn_digit_features(model, hcat(X_query, unrelated))
+        @test F_extended[:, 1:4] == F_batch
+
+        prediction = predict_fhn_digits(model, X_query)
+        @test length(prediction) == 4
+        @test all(in(model.classes), prediction)
+        @test length(predict_training_digits(model)) == length(y_train)
     end
 end
