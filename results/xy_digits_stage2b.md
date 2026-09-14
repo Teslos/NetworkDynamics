@@ -15,11 +15,25 @@ test per class (was 50/30). N=66.
 
 ## Results
 
-| model    | train acc | test acc | Stage 2 (train/test) |
-|----------|----------:|---------:|----------------------|
-| XY (EP)  | 0.816     | 0.797    | 0.792 / 0.767        |
-| logreg   | 0.846     | 0.837    | 0.852 / 0.843        |
-| MLP      | 0.951     | 0.900    | 0.962 / 0.883        |
+Multi-seed rerun (2026-09-13), 5 seeds, mean ± std. This script never selected on
+the test set — it keeps the lowest **training-cost** checkpoint and evaluates test
+once — so the only defect was the single seed:
+
+| model                        | train acc     | test acc      | Stage 2 (5 seeds) |
+|------------------------------|--------------:|--------------:|------------------:|
+| XY (EP, symmetric), cost-sel | 0.818 ± 0.030 | **0.778 ± 0.038** | 0.701 ± 0.059 |
+| XY, validation-selected      | —             | 0.788 ± 0.034 | 0.659 ± 0.064 |
+| logreg                       | —             | 0.840 ± 0.009 | 0.841 ± 0.011 |
+| MLP                          | —             | 0.893 ± 0.015 | 0.879 ± 0.022 |
+
+Per-seed test: 0.817, 0.760, 0.723, 0.789, 0.803. The originally reported
+single-seed 0.797 sits inside that spread. Here the validation-selected
+checkpoint is slightly *better* than the training-cost one (0.788 vs 0.778), the
+reverse of Stage 2 — with 140 held-out images the two criteria are within each
+other's noise. Per-seed records: `results/xy_digits_stage2b_seeds.json`.
+
+Originally reported (single seed): XY 0.816 / 0.797, logreg 0.846 / 0.837,
+MLP 0.951 / 0.900.
 
 Chance = 0.100. Trained 150 epochs in **2743 s (~46 min)**; cost 2.375 → 0.801
 (min 0.634, still bouncing: epoch 105 = 0.69, 120 = 0.80, 135 = 0.83).
@@ -32,7 +46,7 @@ so the Stage 2 gap is **not** simple under-training:
 1. **Diminishing returns.** ~16.6× more compute (165 s → 2743 s: symmetric
    gradient, ~2× epochs, 2× hidden, 40% more data) moved test just **+3.0 pts**
    (0.767 → 0.797) and train **+2.4 pts** (0.792 → 0.816).
-2. **Still cannot fit the train set.** XY train is 0.816 — *below* logreg's train
+2. **Still cannot fit the train set.** XY train is 0.818 ± 0.030 — *below* logreg's train
    (0.846) and far below MLP's (0.951) — despite ample capacity (40 hidden). Pure
    under-training would have been relieved by the added capacity + epochs; it was
    not.

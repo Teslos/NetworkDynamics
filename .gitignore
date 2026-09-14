@@ -17,3 +17,4 @@ mcp-julia/.logs/
 
 # Python bytecode
 __pycache__/
+results/logs/

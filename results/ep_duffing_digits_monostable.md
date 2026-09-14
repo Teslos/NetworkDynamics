@@ -16,15 +16,26 @@ convex (large `a_h`, near-linear) and cool to the nonlinear operating point, sta
 
 ## Results
 
-| model                 | train | test  |
-|-----------------------|------:|------:|
-| Duffing mono (fixed a=0.5)   | 0.430 | 0.430 |
-| Duffing mono (Landau a:3→0.5)| 0.577 | 0.540 |
-| logreg                | —     | 0.835 |
-| MLP                   | —     | 0.880 |
+Corrected protocol, 5 seeds, validation-selected checkpoint (see below):
 
-Chance 0.10. Refs: bistable-readout 0.177, graded-readout (double-well hidden)
-0.270, XY 0.94.
+| model                         | train         | test          |
+|-------------------------------|--------------:|--------------:|
+| Duffing mono (fixed a=0.5)    | 0.388 ± 0.064 | 0.381 ± 0.064 |
+| &nbsp;&nbsp;(final iterate)   | —             | 0.318 ± 0.061 |
+| Duffing mono (Landau a:3→0.5) | 0.483 ± 0.036 | **0.471 ± 0.031** |
+| &nbsp;&nbsp;(final iterate)   | —             | 0.335 ± 0.156 |
+| logreg                        | —             | 0.835 ± 0.008 |
+| MLP                           | —             | 0.877 ± 0.004 |
+
+The originally reported single-seed, test-selected values were 0.430 (fixed) and
+0.540 (Landau). The Landau advantage over the fixed schedule survives the
+correction (+9.0 pp), and so does the ordering against the bistable variants.
+Note the gap between the selected checkpoint and the final iterate, largest for
+Landau (0.471 vs 0.335 ± 0.156): this configuration is genuinely unstable late in
+training, which is what motivated v2.
+
+Chance 0.10. Refs: bistable-readout 0.164 ± 0.035, graded-readout (double-well
+hidden) 0.215 ± 0.049.
 
 ## Conclusion — confirms the diagnosis; recovers a lot, not all
 
@@ -66,3 +77,17 @@ capability.
 Lower learning rate + early stopping (the best checkpoint 0.54 didn't hold); symmetric
 ±β gradient (cleaner); more hidden units; full 64px inputs. Each should push the
 monostable-Duffing number up toward the logreg/MLP line without changing the substrate.
+
+## Evaluation protocol corrected (2026-09-13)
+
+The numbers first recorded here came from a single seed whose checkpoint was
+selected by repeatedly scoring the **test** set and keeping the maximum -- a
+selection-biased figure, and a single seed against the manuscript's statement
+that every accuracy is a mean over seeds. The script now follows
+`src/hybrid/readout_ablation.py` (shared helper `src/utils/eval_protocol.jl`):
+a stratified 20% validation split is carved out of the training partition and
+selects the checkpoint; the test partition is evaluated **once per seed** on
+checkpoints fixed in advance (the validation-selected one and the final
+iterate); 5 seeds resample the split, the initialisation and the batch
+order; and logreg/MLP are refit per seed on the same reduced training split.
+Per-seed records: `results/ep_duffing_digits_monostable_seeds.json`.

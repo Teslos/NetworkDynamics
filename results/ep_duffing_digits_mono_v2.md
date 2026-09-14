@@ -1,4 +1,4 @@
-# Monostable Duffing digits v2: stability fixes reach logreg level (0.84)
+# Monostable Duffing digits v2: stability fixes reach 0.816 ± 0.029, just under logreg
 
 Script: `scripts/duffing_digits_mono_v2.jl`
 Run: `julia -t auto --project=. scripts/duffing_digits_mono_v2.jl` (2026-07-01)
@@ -18,13 +18,22 @@ substrate:
 
 ## Results
 
-| model                  | train | test  |
-|------------------------|------:|------:|
-| Duffing mono v2 (best) | 0.880 | **0.840** |
-| logreg                 | —     | 0.835 |
-| MLP                    | —     | 0.880 |
+Corrected protocol, 5 seeds, validation-selected checkpoint (see below):
 
-Chance 0.10. Refs: mono v1 (10 hid, one-sided) 0.54; bistable 0.18; XY 0.94.
+| model                       | train         | test          |
+|-----------------------------|--------------:|--------------:|
+| Duffing mono v2 (val-sel)   | 0.880 ± 0.014 | **0.816 ± 0.029** |
+| Duffing mono v2 (final iter)| —             | 0.823 ± 0.018 |
+| logreg                      | —             | 0.835 ± 0.008 |
+| MLP                         | —             | 0.877 ± 0.004 |
+
+Per-seed test: 0.810, 0.790, 0.850, 0.787, 0.843. Paired Duffing − logreg:
+−1.85 ± 2.26 pp, ahead on 2/5 seeds. The originally reported single-seed,
+test-selected value was 0.840; correcting the protocol costs ~2.4 pp and moves
+the network from "at logreg level" to "within about two points of it, with a
+seed spread that covers the gap".
+
+Chance 0.10. Refs: mono v1 (10 hid, one-sided) 0.47; bistable 0.16.
 Training was **stable**: CE 2.3 → 0.29 monotone (no bouncing), test climbed
 0.16 → 0.84; test rose steadily as `a_h` annealed (0.16@a_h=3 → 0.74@a_h=0.81 →
 0.84@a_h=0.5).
@@ -75,3 +84,17 @@ multi-way soft decisions but the right tool for discrete memory.
 
 Full 64px inputs (should lift the 0.84 toward MLP), more hidden, or an XY-vs-Duffing
 head-to-head on identical features. Substrate question is answered.
+
+## Evaluation protocol corrected (2026-09-13)
+
+The numbers first recorded here came from a single seed whose checkpoint was
+selected by repeatedly scoring the **test** set and keeping the maximum -- a
+selection-biased figure, and a single seed against the manuscript's statement
+that every accuracy is a mean over seeds. The script now follows
+`src/hybrid/readout_ablation.py` (shared helper `src/utils/eval_protocol.jl`):
+a stratified 20% validation split is carved out of the training partition and
+selects the checkpoint; the test partition is evaluated **once per seed** on
+checkpoints fixed in advance (the validation-selected one and the final
+iterate); 5 seeds resample the split, the initialisation and the batch
+order; and logreg/MLP are refit per seed on the same reduced training split.
+Per-seed records: `results/ep_duffing_digits_mono_v2_seeds.json`.
