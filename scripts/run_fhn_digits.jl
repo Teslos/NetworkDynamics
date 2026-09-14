@@ -15,9 +15,25 @@
 # The all-to-all diffusive coupling is written as a dense matvec W*u, so the
 # 1797-node / 3.2M-edge solve is cheap.
 #
+# TRANSDUCTION. One sample per node means every sample's features depend on every
+# other sample's drive, test samples included, because all N are coupled in a
+# single solve and the train/test split happens afterwards. No labels leak, but
+# the representation is a function of the whole batch, and there is no map from a
+# lone new sample to features. `--mode fixed_reservoir` removes this: the columns
+# of the coupling matrix belonging to test nodes are zeroed, so no node receives
+# from a test node. Each test node then evolves under its own drive plus the
+# training nodes only -- exactly as if it had been inserted on its own into a
+# reservoir made of the training batch -- while no test sample influences the
+# training representation or any other test sample. That variant is inductive and
+# deployable (the train trajectories do not depend on the query, so they can be
+# cached once and a query costs a single-node solve). Measured at N=300 over 3
+# seeds: transductive 0.855, fixed_reservoir 0.849, uncoupled 0.497, i.e. the
+# coupling carries the accuracy but does not need the test set to do it.
+#
 # Usage:
-#   julia --project=. scripts/run_fhn_digits.jl           # full N=1797
-#   julia --project=. scripts/run_fhn_digits.jl --n 300   # quick subset
+#   julia --project=. scripts/run_fhn_digits.jl                       # full N=1797, inductive
+#   julia --project=. scripts/run_fhn_digits.jl --n 300                # quick subset
+#   julia --project=. scripts/run_fhn_digits.jl --mode transductive    # the original, batch-coupled
 
 include(joinpath(@__DIR__, "..", "src", "baselines", "baseline_utils.jl"))
 include(joinpath(@__DIR__, "..", "src", "baselines", "baseline_models.jl"))
@@ -32,6 +48,14 @@ const NSAMP = n_arg === nothing ? 1797 : parse(Int, ARGS[n_arg + 1])
 # the train/test split and the readout init, i.e. a full end-to-end reseed.
 seed_arg = findfirst(==("--seed"), ARGS)
 const SEED = seed_arg === nothing ? 1234 : parse(Int, ARGS[seed_arg + 1])
+
+# transductive  : ship-as-was, all N coupled in one solve, split applied after.
+# fixed_reservoir: inductive, test nodes receive from train nodes only (see above).
+# Default is the INDUCTIVE mode: the transductive one is kept only to reproduce
+# the earlier numbers (it is what the original implementation did).
+mode_arg = findfirst(==("--mode"), ARGS)
+const MODE = mode_arg === nothing ? "fixed_reservoir" : ARGS[mode_arg + 1]
+MODE in ("transductive", "fixed_reservoir") || error("--mode must be transductive or fixed_reservoir")
 
 # ----- FHN reservoir params (from the original script)
 const EPS = 0.05
@@ -55,7 +79,7 @@ idx = shuffle(rng, 1:size(imgs_all, 1))[1:NSAMP]
 imgs = imgs_all[idx, :, :]
 y = y_all[idx]
 N = NSAMP
-println("Using N=$N digit-nodes (classes: $(sort(unique(y))))")
+println("Using N=$N digit-nodes, mode=$MODE (classes: $(sort(unique(y))))")
 
 # ----- spike encode: (N,8,8) pixels/16 -> drive matrix S (N, 2048)
 x = imgs ./ 16.0
@@ -65,11 +89,23 @@ S = Float64.(reshape(S, N, NSTEPS * 64))            # (N, 2048)
 const T = size(S, 2)
 println("Drive: $(size(S)) (each node gets a $(T)-length spike train)")
 
+# ----- split first: `fixed_reservoir` needs to know which nodes are test nodes
+# before the solve. The split itself is unchanged (same rng, same result as when
+# it was computed after the solve), so the two modes share it exactly.
+const classes = sort(unique(y))
+const tr, te = stratified_split(y, 0.8; rng=Xoshiro(SEED))
+
 # ----- coupling: complete graph, diffusive, weights ~ sigma * Normal-pdf(U[-1,1])
 Wc = [pdf(Normal(), r) for r in (2 .* rand(rng, N, N) .- 1)]
 Wc = SIGMA .* (Wc .+ Wc') ./ 2
 Wc[diagind(Wc)] .= 0
-const rowsum = vec(sum(Wc, dims=2))
+if MODE == "fixed_reservoir"
+    # No node receives from a test node. Breaks the symmetry of Wc on purpose:
+    # train dynamics become independent of the test set, and each test node sees
+    # only the training population.
+    Wc[:, te] .= 0.0
+end
+const rowsum = vec(sum(Wc, dims=2))     # row sums AFTER masking
 
 # ----- vectorized input drive g_i(t) by linear interpolation across columns
 @inline function drive!(out, t)
@@ -104,8 +140,6 @@ U = Array(sol)                                       # (N, T) node u-trajectorie
 Xfeat = permutedims(U)                               # (T, N): col j = sample j features (T-length trajectory)
 
 # ----- readout: logistic regression on the reservoir trajectories, 80/20 split
-classes = sort(unique(y))
-tr, te = stratified_split(y, 0.8; rng=Xoshiro(SEED))
 sc = standardize_fit(Xfeat[:, tr])
 Xtr = standardize_apply(Xfeat[:, tr], sc)
 Xte = standardize_apply(Xfeat[:, te], sc)
@@ -117,10 +151,10 @@ pred_te = classes[predict_nn(model, Xte)]
 rep = classification_report(pred_te, y[te], classes)
 
 println("\n========== FHN reservoir digit classification ==========")
-println(@sprintf("Nodes/samples: %d   features (trajectory length): %d", N, T))
+println(@sprintf("Nodes/samples: %d   features (trajectory length): %d   mode: %s", N, T, MODE))
 println(@sprintf("Train accuracy: %.4f", accuracy(pred_tr, y[tr])))
 println(@sprintf("Test  accuracy: %.4f   (paper claims 0.88)", rep.accuracy))
 println(@sprintf("Test  macro-F1: %.4f", rep.macro_f1))
 # machine-readable line for multi-seed aggregation
-println(@sprintf("RESULT seed=%d N=%d test_acc=%.4f macro_f1=%.4f",
-                 SEED, N, rep.accuracy, rep.macro_f1))
+println(@sprintf("RESULT mode=%s seed=%d N=%d test_acc=%.4f macro_f1=%.4f",
+                 MODE, SEED, N, rep.accuracy, rep.macro_f1))
