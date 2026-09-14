@@ -177,6 +177,9 @@ transient; readout is ridge on [state; input; 1].
 function esn_lorenz(data; Nr=400, spectral_radius=0.95, density=0.1, input_scale=0.5,
                     leak=1.0, lambda=1e-6, washout=200, train_len=5000, horizon=2000,
                     valid_thresh=0.4, rng=Random.default_rng())
+    @assert 1 <= washout < train_len "washout must be smaller than train_len"
+    @assert horizon > 0 && train_len + horizon <= size(data, 2) "train_len + horizon must fit within the supplied trajectory"
+
     # normalize each coordinate
     mu = vec(mean(data, dims=2)); sg = vec(std(data, dims=2))
     D = (data .- mu) ./ sg
@@ -191,16 +194,25 @@ function esn_lorenz(data; Nr=400, spectral_radius=0.95, density=0.1, input_scale
     Yt = Ytr[:, washout+1:end]
     Wout = (Yt * Φ') / (Φ * Φ' + lambda * I)
 
-    # autonomous rollout from the end of training
+    # autonomous rollout from the end of training.  During teacher forcing,
+    # Str[:, t] is the state after consuming D[:, t], and Wout maps
+    # [Str[:, t]; D[:, t]; 1] -> D[:, t + 1].  Therefore the first forecast
+    # must use the last observed training sample D[:, train_len].  Feeding
+    # D[:, train_len + 1] here would consume the first future truth value and
+    # shift every prediction one step ahead of its evaluation target.
     x = Str[:, end]
-    u = D[:, train_len+1]
+    u = D[:, train_len]
     truth = D[:, train_len+1:train_len+horizon]
     pred = zeros(3, horizon)
     for t in 1:horizon
-        x = (1 - leak) .* x .+ leak .* tanh.(esn.Wr * x .+ esn.Win * vcat(u, 1.0))
         yhat = Wout * vcat(x, u, 1.0)
         pred[:, t] = yhat
-        u = yhat
+        if t < horizon
+            # Drive the reservoir with the prediction before producing the
+            # next forecast; no future ground-truth samples are used.
+            u = yhat
+            x = (1 - leak) .* x .+ leak .* tanh.(esn.Wr * x .+ esn.Win * vcat(u, 1.0))
+        end
     end
 
     # metrics (in normalized coordinates)

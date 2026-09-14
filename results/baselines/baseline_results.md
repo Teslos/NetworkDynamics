@@ -21,13 +21,23 @@ Mean ± std over 10 seeds. ESN reservoir size = 500.
 | mlp | 0.933 ± 0.003 | 0.944 ± 0.003 | 0.933 ± 0.003 |
 | tanh_esn | 0.930 ± 0.003 | 0.942 ± 0.003 | 0.930 ± 0.003 |
 
-## Lorenz prediction (tanh-ESN)
+## Lorenz prediction (tanh-ESN, Nr = 500)
 
-| Metric | Value |
-|---|---|
-| Valid time (steps) | 387.500 ± 62.449 |
-| Valid time (Lyapunov times) | 7.02 ± 1.13 |
-| NRMSE over full horizon | 1.310 ± 0.029 |
+Regenerated 2026-09-13 after the autonomous-rollout off-by-one in
+`esn_lorenz` was fixed (the pre-fix rollout emitted D[t+2] while scoring it
+against D[t+1], and consumed one real future sample to do so).
+
+| Metric | Value | pre-fix value |
+|---|---|---|
+| Valid time (steps) | 377.300 ± 46.578 | 387.500 ± 62.449 |
+| Valid time (Lyapunov times) | 6.83 ± 0.84 | 7.02 ± 1.13 |
+| NRMSE over full horizon | 1.310 ± 0.042 | 1.310 ± 0.029 |
+
+The correction moves the mean by -0.18 Lyapunov times here. Its sign is not
+fixed: valid time is a threshold crossing on a chaotic divergence curve, so a
+one-step shift can fall either side of the 0.4 threshold. At Nr = 400 the same
+correction *raises* the mean, from 5.58 ± 1.32 to 6.44 ± 1.23. NRMSE is
+insensitive to the shift, being dominated by the post-divergence saturation.
 
 ## Paired Wilcoxon signed-rank (protocol demo)
 

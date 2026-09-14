@@ -76,7 +76,7 @@ Add `--quick` to any for a fast smoke run. Figures are written to
 | B3 | §1.3 topology claim | paired Wilcoxon protocol | demonstrated (MLP vs logreg, p=0.006) |
 | B4 | §6 metrics | macro/weighted F1, per-class | reported for every model |
 | B5 | §6 cross-validation | stratified k-fold (dry bean) | done |
-| B6 | §2/§6 Lorenz | valid time + NRMSE | 7.0 ± 1.1 Lyapunov times, then diverges |
+| B6 | §2/§6 Lorenz | valid time + NRMSE | 6.8 ± 0.8 Lyapunov times, then diverges |
 | B7 | §1.4 resonance | silhouette / Fisher / linear probe | reservoir **less** separable than raw pixels |
 | B8 | §1.2 framing | learned-coupling vs fixed reservoir | no significant difference (p≈0.45) |
 | B9 | §6 edge of chaos | accuracy + Lyapunov/ESP vs coupling | FHN contracting, **not** at edge of chaos |
@@ -97,8 +97,9 @@ Digits (== sklearn `load_digits`, 1797×64, 10 classes, 80/20 split, 10 seeds):
 | FHN reservoir (our reproduction, N=1797) | 0.936 (1 seed) | 0.936 |
 
 Dry bean (13611×16, 7 classes, repeated stratified 5-fold): logreg 0.923, SVM
-0.924, MLP 0.933, tanh-ESN 0.930 (all ± ~0.004). Lorenz tanh-ESN: valid
-7.0 ± 1.1 Lyapunov times, NRMSE 1.31. A LaTeX summary table for digits is in
+0.924, MLP 0.933, tanh-ESN 0.930 (all ± ~0.004). Lorenz tanh-ESN (Nr = 500): valid
+6.8 ± 0.8 Lyapunov times, NRMSE 1.31 (regenerated 2026-09-13 after the
+autonomous-rollout off-by-one fix; was 7.0 ± 1.1). A LaTeX summary table for digits is in
 `digits_results_table.tex`.
 
 > The continuous-time LPCTESN reservoir baseline that previously lived here has
