@@ -19,16 +19,25 @@ using SciMLBase: get_du
 
 EP_DUFFING_SKIP_RUN = true
 include(joinpath(@__DIR__, "..", "notebooks", "EP-Duffing-Network.jl"))
+include(joinpath(@__DIR__, "..", "src", "utils", "eval_protocol.jl"))
+using .EvalProtocol
 
-const SEED=1; const CLASSES=collect(0:9); const N_TRAIN_PC=60; const N_TEST_PC=40
+# Evaluation protocol (revised 2026-09-12): the checkpoint is selected on a
+# stratified 20% validation split carved out of the training partition, the test
+# partition is evaluated once per seed on checkpoints fixed in advance, and the
+# result is a mean over seeds. See src/utils/eval_protocol.jl. The earlier
+# single-seed, test-selected number for this script was 0.84.
+const SEEDS=1:parse(Int,get(ENV,"DUF_V2_SEEDS","5")); const VAL_FRAC=0.2
+const CLASSES=collect(0:9); const N_TRAIN_PC=60; const N_TEST_PC=40
 const N_HID=40; const T_MAX=40.0; const DELTA=1.0; const BETA=0.1; const LR=0.008   # lower LR
-const N_ITER=400; const BATCH=100; const ANNEAL_FRAC=0.4
+const N_ITER=parse(Int,get(ENV,"DUF_V2_ITER","400")); const BATCH=100; const ANNEAL_FRAC=0.4
 const A_OP=0.5; const A_HI=3.0; const C_H=1.0
 const EVAL_EVERY=20; const STEADY_TOL=1e-3; const SYM=true                          # symmetric grad
+const OUTFILE=joinpath(@__DIR__,"..","results","ep_duffing_digits_mono_v2_seeds.json")
 
-Random.seed!(SEED)
 println("threads = ", Threads.nthreads(), ", monostable v2: symmetric=", SYM,
-        ", LR=", LR, ", hidden=", N_HID, ", ", N_ITER, " iters + best-checkpoint")
+        ", LR=", LR, ", hidden=", N_HID, ", ", N_ITER, " iters, seeds ", collect(SEEDS),
+        " (checkpoint selected on validation, test evaluated once per seed)")
 raw=readdlm(joinpath(@__DIR__,"..","data","digits","optdigits.tes"),',',Int)
 const X_ALL=Float64.(raw[:,1:64]); const Y_ALL=raw[:,65]
 pool4x4(v)=(img=reshape(v,8,8);[ (img[bi,bj]+img[bi+1,bj]+img[bi,bj+1]+img[bi+1,bj+1])/4 for bi in 1:2:8 for bj in 1:2:8])
@@ -81,40 +90,76 @@ logreg_acc(Xtr,ytr,Xte,yte,nc;iters=800,lr=0.5,l2=1e-3)=begin
     n,d=size(Xtr);W=zeros(d,nc);b=zeros(nc);Y=zeros(n,nc);for i in 1:n;Y[i,ytr[i]]=1.0;end
     for _ in 1:iters;e=exp.((Xtr*W.+b').-maximum(Xtr*W.+b',dims=2));P=e./sum(e,dims=2);G=(P.-Y)./n;W.-=lr.*(Xtr'*G.+l2.*W);b.-=lr.*vec(sum(G,dims=1));end
     L=Xte*W.+b';mean([argmax(@view L[i,:]) for i in 1:size(Xte,1)].==yte) end
-mlp_acc(Xtr,ytr,Xte,yte,nc;h=64,iters=3000,lr=0.2,l2=1e-4)=begin
-    rng=MersenneTwister(SEED);n,d=size(Xtr);W1=0.1*randn(rng,d,h);b1=zeros(h);W2=0.1*randn(rng,h,nc);b2=zeros(nc);Y=zeros(n,nc);for i in 1:n;Y[i,ytr[i]]=1.0;end
+mlp_acc(Xtr,ytr,Xte,yte,nc,seed;h=64,iters=3000,lr=0.2,l2=1e-4)=begin
+    rng=MersenneTwister(seed);n,d=size(Xtr);W1=0.1*randn(rng,d,h);b1=zeros(h);W2=0.1*randn(rng,h,nc);b2=zeros(nc);Y=zeros(n,nc);for i in 1:n;Y[i,ytr[i]]=1.0;end
     for _ in 1:iters;A1=tanh.(Xtr*W1.+b1');Lg=A1*W2.+b2';e=exp.(Lg.-maximum(Lg,dims=2));P=e./sum(e,dims=2);dL=(P.-Y)./n;gW2=A1'*dL.+l2.*W2;gb2=vec(sum(dL,dims=1));dZ1=(dL*W2').*(1 .-A1.^2);gW1=Xtr'*dZ1.+l2.*W1;gb1=vec(sum(dZ1,dims=1));W1.-=lr.*gW1;b1.-=lr.*gb1;W2.-=lr.*gW2;b2.-=lr.*gb2;end
     A1=tanh.(Xte*W1.+b1');Lg=A1*W2.+b2';mean([argmax(@view Lg[i,:]) for i in 1:size(Xte,1)].==yte) end
 
-rng=MersenneTwister(SEED);cc=Dict(c=>j for (j,c) in enumerate(CLASSES));tr=Int[];te=Int[]
-for c in CLASSES;ci=shuffle(rng,findall(==(c),Y_ALL));append!(tr,ci[1:N_TRAIN_PC]);append!(te,ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC]);end
-Xtr_p=pool_all(X_ALL[tr,:])./16.0;Xte_p=pool_all(X_ALL[te,:])./16.0
-ytr=[cc[c] for c in Y_ALL[tr]];yte=[cc[c] for c in Y_ALL[te]];Xtr=2 .*Xtr_p.-1;Xte=2 .*Xte_p.-1;Nd=length(ytr)
-Ytr=[ytr[i]==j ? 1.0 : 0.0 for i in eachindex(ytr),j in 1:N_CLS]
-println("N=$N (16 in, $N_HID monostable-hidden, 10 linear out), train=$Nd test=$(length(yte))\n")
+const CC=Dict(c=>j for (j,c) in enumerate(CLASSES))
+function make_split(seed)
+    tr,va,te=class_split(Y_ALL,CLASSES,N_TRAIN_PC,N_TEST_PC;val_frac=VAL_FRAC,seed=seed)
+    feat(idx)=pool_all(X_ALL[idx,:])./16.0; lab(idx)=[CC[c] for c in Y_ALL[idx]]
+    ftr,fva,fte=feat(tr),feat(va),feat(te)
+    return (Xtr_p=ftr,Xva_p=fva,Xte_p=fte,Xtr=2 .*ftr.-1,Xva=2 .*fva.-1,Xte=2 .*fte.-1,
+            ytr=lab(tr),yva=lab(va),yte=lab(te))
+end
 
 a_at(it)= it>=max(1,round(Int,ANNEAL_FRAC*N_ITER)) ? A_OP : A_HI+(A_OP-A_HI)*(it-1)/(max(1,round(Int,ANNEAL_FRAC*N_ITER))-1)
-W=0.1*randn(rng,N,N);W=(W+W')/2;W.*=MASK;h=zeros(N)
-acc(W,h,X,y)=begin n=size(X,1);x0=zeros(n,N);x0[:,INPUT].=X;x0[:,VAR].=0.1*randn(rng,n,length(VAR));eq=drelax(W,h,A_OP,x0,zeros(n,N_CLS),0.0);o=eq[:,OUT];mean([argmax(@view o[i,:]) for i in 1:n].==y) end
-sW=zeros(N,N);rW=zeros(N,N);sh=zeros(N);rh=zeros(N);best=0.0;bW=copy(W);bh=copy(h)
-println("Training..."); t0=time()
-for it in 1:N_ITER
-    a_h=a_at(it);bidx=rand(rng,1:Nd,BATCH);x0=zeros(BATCH,N);x0[:,INPUT].=Xtr[bidx,:];x0[:,VAR].=0.1*randn(rng,BATCH,length(VAR))
-    gW,gh,ce=dgrad(W,h,a_h,x0,Ytr[bidx,:],BETA)
-    global W,sW,rW=adam_update(W,gW,LR,it,sW,rW);global W=(W+W')/2;global W.*=MASK
-    global h,sh,rh=adam_update(h,gh,LR,it,sh,rh)
-    if it==1||it%EVAL_EVERY==0
-        a=acc(W,h,Xte,yte);if a>best;global best=a;global bW=copy(W);global bh=copy(h);end
-        @printf("  iter %d: CE %.3f (a_h=%.2f) test %.3f (best %.3f) [%.0fs]\n",it,ce,a_h,a,best,time()-t0)
+# `var_init` is a frozen draw, so the score depends only on (W,h).
+acc(W,h,X,y,var_init)=begin n=size(X,1);x0=zeros(n,N);x0[:,INPUT].=X;x0[:,VAR].=var_init;eq=drelax(W,h,A_OP,x0,zeros(n,N_CLS),0.0);o=eq[:,OUT];mean([argmax(@view o[i,:]) for i in 1:n].==y) end
+
+function run_seed(seed)
+    s=make_split(seed);Nd=length(s.ytr)
+    Ytr=[s.ytr[i]==j ? 1.0 : 0.0 for i in eachindex(s.ytr),j in 1:N_CLS]
+    rng=MersenneTwister(seed)
+    W=0.1*randn(rng,N,N);W=(W+W')/2;W.*=MASK;h=zeros(N)
+    init_tr=frozen_init(7000+seed,Nd,length(VAR);scale=0.1)
+    init_va=frozen_init(8000+seed,length(s.yva),length(VAR);scale=0.1)
+    init_te=frozen_init(9000+seed,length(s.yte),length(VAR);scale=0.1)
+    sW=zeros(N,N);rW=zeros(N,N);sh=zeros(N);rh=zeros(N)
+    best_va=-1.0;bW=copy(W);bh=copy(h);best_it=0
+    @printf("=== seed %d: N=%d (16 in, %d monostable-hidden, 10 linear out), train=%d val=%d test=%d ===\n",
+            seed,N,N_HID,Nd,length(s.yva),length(s.yte))
+    t0=time()
+    for it in 1:N_ITER
+        a_h=a_at(it);bidx=rand(rng,1:Nd,BATCH);x0=zeros(BATCH,N);x0[:,INPUT].=s.Xtr[bidx,:];x0[:,VAR].=0.1*randn(rng,BATCH,length(VAR))
+        gW,gh,ce=dgrad(W,h,a_h,x0,Ytr[bidx,:],BETA)
+        W,sW,rW=adam_update(W,gW,LR,it,sW,rW);W=(W+W')/2;W.*=MASK
+        h,sh,rh=adam_update(h,gh,LR,it,sh,rh)
+        if it==1||it%EVAL_EVERY==0
+            va=acc(W,h,s.Xva,s.yva,init_va)
+            if va>best_va;best_va=va;bW=copy(W);bh=copy(h);best_it=it;end
+            @printf("  iter %d: CE %.3f (a_h=%.2f) val %.3f (best %.3f @ %d) [%.0fs]\n",it,ce,a_h,va,best_va,best_it,time()-t0)
+        end
     end
+    secs=time()-t0
+    # The test partition is evaluated here only, on checkpoints fixed in advance.
+    te_sel=acc(bW,bh,s.Xte,s.yte,init_te);te_fin=acc(W,h,s.Xte,s.yte,init_te)
+    tr_acc=acc(bW,bh,s.Xtr,s.ytr,init_tr)
+    lr_te=logreg_acc(s.Xtr_p,s.ytr,s.Xte_p,s.yte,N_CLS)
+    ml_te=mlp_acc(s.Xtr_p,s.ytr,s.Xte_p,s.yte,N_CLS,seed)
+    @printf("  seed %d done in %.0fs: train %.3f | val %.3f @ iter %d | test %.3f (final iterate %.3f) | logreg %.3f | MLP %.3f\n\n",
+            seed,secs,tr_acc,best_va,best_it,te_sel,te_fin,lr_te,ml_te)
+    return (seed=seed,train=tr_acc,val=best_va,selected_iter=best_it,test=te_sel,
+            test_final=te_fin,logreg=lr_te,mlp=ml_te,seconds=secs)
 end
-du_tr=acc(bW,bh,Xtr,ytr);du_te=acc(bW,bh,Xte,yte)
-lr_te=logreg_acc(Xtr_p,ytr,Xte_p,yte,N_CLS);ml_te=mlp_acc(Xtr_p,ytr,Xte_p,yte,N_CLS)
-@printf("\ntrained %d iters in %.0fs\n",N_ITER,time()-t0)
-println("="^52)
-@printf("%-22s | %-8s %-8s (chance %.3f)\n","model","train","test",1/N_CLS)
-println("-"^52)
-@printf("%-22s | %-8.3f %-8.3f\n","Duffing mono v2 (best)",du_tr,du_te)
-@printf("%-22s | %-8s %-8.3f\n","logreg",  "-",lr_te)
-@printf("%-22s | %-8s %-8.3f\n","MLP",     "-",ml_te)
-println("\nRef: mono v1 (10 hid, one-sided) 0.54; bistable 0.18; XY 0.94")
+
+results=[run_seed(seed) for seed in SEEDS]
+du=[r.test for r in results];duf=[r.test_final for r in results];dutr=[r.train for r in results]
+lrb=[r.logreg for r in results];mlb=[r.mlp for r in results];gap=100 .*(du.-lrb)
+println("="^64)
+@printf("%d seeds, 4x4-pooled, chance %.3f. Test evaluated once per seed.\n",length(results),1/N_CLS)
+println("-"^64)
+@printf("%-26s | %-16s %-16s\n","model","train","test")
+@printf("%-26s | %-16s %-16s\n","Duffing mono v2 (val-sel)",msfmt(dutr),msfmt(du))
+@printf("%-26s | %-16s %-16s\n","Duffing (final iterate)","-",msfmt(duf))
+@printf("%-26s | %-16s %-16s\n","logreg",  "-",msfmt(lrb))
+@printf("%-26s | %-16s %-16s\n","MLP",     "-",msfmt(mlb))
+println("-"^64)
+@printf("per-seed test: %s\n",join((@sprintf("%.3f",a) for a in du),", "))
+@printf("Duffing - logreg, paired: %s pp (ahead on %d/%d seeds)\n",msfmt(gap;digits=2),count(>(0),gap),length(gap))
+println("\nRef: mono v1 (10 hid, one-sided) 0.54; bistable 0.18")
+write_seed_record(OUTFILE,Dict("seeds"=>collect(SEEDS),"iterations"=>N_ITER,"hidden"=>N_HID,
+    "validation_fraction"=>VAL_FRAC,"train_per_class"=>N_TRAIN_PC,"test_per_class"=>N_TEST_PC,
+    "beta"=>BETA,"symmetric_gradient"=>SYM,"inputs"=>"4x4 pooled"),results)
+println("\nwrote ",OUTFILE)
