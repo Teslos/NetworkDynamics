@@ -83,6 +83,15 @@ Add `--quick` to any for a fast smoke run. Figures are written to
 | B10 | (Beattie) criticality | avalanche statistics vs coupling | **is** avalanche-critical (branching→1) |
 | B11 | capstone | criticality **and** accuracy, same network | weak peak at criticality; shrinkage claim not reproduced |
 
+> **Reproducibility note (2026-09-14).** The numbers in this directory were
+> produced before two unseeded random sources were fixed: the spike encoder drew
+> from the global RNG, and Flux's `Dense` initialised every readout from the
+> global RNG even when `train_logreg`/`train_linear_svm`/`train_mlp` were handed
+> an `rng` (the argument was a no-op). A given seed therefore did not reproduce a
+> given run. The mean +/- std over seeds remains a valid estimate, since the
+> extra variation is just another source of spread, but individual runs are not
+> reproducible from these seeds. Both sources are now seeded.
+
 ### Baselines & statistics (B1–B6) — `baseline_results.md`
 
 Digits (== sklearn `load_digits`, 1797×64, 10 classes, 80/20 split, 10 seeds):

@@ -38,9 +38,11 @@ function load_digit_images(; path=joinpath(@__DIR__, "..", "data", "digits", "op
 end
 
 # rate-encode (M,8,8) images into a drive matrix (M, 32*64)
-function encode(imgs)
+function encode(imgs; seed::Int=0)
     M = size(imgs, 1)
-    S = spikerate.rate(imgs ./ 16.0, NSTEPS)        # (32, M, 8, 8)
+    # Seed the encoder explicitly: its Bernoulli draws otherwise use the global
+    # RNG, which makes the whole diagnostic irreproducible run to run.
+    S = spikerate.rate(imgs ./ 16.0, NSTEPS; rng=Xoshiro(seed + 100_000))   # (32, M, 8, 8)
     S = permutedims(S, (2, 1, 3, 4))
     return Float64.(reshape(S, M, NSTEPS * 64))     # (M, 2048)
 end
@@ -89,7 +91,7 @@ end
 println("B9: FHN reservoir sigma-sweep (N=$NFHN, $(SEEDS) seeds)...")
 rng0 = Xoshiro(0)
 fhn_idx = shuffle(rng0, 1:size(imgs_all, 1))[1:NFHN]
-S_fhn = encode(imgs_all[fhn_idx, :, :])
+S_fhn = encode(imgs_all[fhn_idx, :, :]; seed=0)
 y_fhn = y_all[fhn_idx]
 
 fhn_acc = Dict(s => Float64[] for s in SIGMAS)

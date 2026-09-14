@@ -73,7 +73,7 @@ mu = mean(Xs, dims = 2); sd = std(Xs, dims = 2) .+ 1e-9
 Z  = (Xs .- mu) ./ sd
 
 # ----- spike encode: (16, N) rates -> drive matrix S (N, 16*NSTEPS)
-S = spikerate.rate(permutedims(Z), NSTEPS)    # (NSTEPS, N, 16)
+S = spikerate.rate(permutedims(Z), NSTEPS; rng=Xoshiro(SEED + 100_000))    # (NSTEPS, N, 16)
 S = permutedims(S, (2, 1, 3))                 # (N, NSTEPS, 16)
 S = Float64.(reshape(S, N * NBATCH, NSTEPS * 16))   # (all used samples, 512)
 const T = size(S, 2)

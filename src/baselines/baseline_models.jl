@@ -22,6 +22,14 @@ export train_logreg, train_linear_svm, train_mlp, predict_nn,
 # Y is one-hot (K, N). Returns a function mapping X -> class indices.
 # ---------------------------------------------------------------------------
 
+# Weight initialisation is the only stochastic part of these models: `_train!`
+# is full-batch, so it draws nothing. Flux's `Dense` initialises from the GLOBAL
+# rng unless an `init` is supplied, which silently de-seeds every caller that
+# passes `rng=` and expects a reproducible fit. `_dense_init` binds the supplied
+# stream instead.
+_dense_init(rng) = (dims...) -> Flux.glorot_uniform(rng, dims...)
+
+# `rng` is accepted for signature symmetry; full-batch training consumes none.
 function _train!(model, X, Y, lossfn; epochs, lr, l2, rng)
     opt = Flux.setup(Flux.Adam(lr), model)
     Xf = Float32.(X)
@@ -40,7 +48,7 @@ predict_nn(model, X) = vec(map(argmax, eachcol(model(Float32.(X)))))
 "Multinomial logistic regression (linear + softmax cross-entropy)."
 function train_logreg(X, Y; epochs=400, lr=0.05, l2=1e-4, rng=Random.default_rng())
     d, K = size(X, 1), size(Y, 1)
-    model = Dense(d => K)
+    model = Dense(d => K; init=_dense_init(rng))
     _train!(model, X, Y, Flux.logitcrossentropy; epochs, lr, l2, rng)
     return model
 end
@@ -57,7 +65,7 @@ end
 "Linear SVM (linear scores + multiclass hinge + L2)."
 function train_linear_svm(X, Y; epochs=400, lr=0.05, l2=1e-3, rng=Random.default_rng())
     d, K = size(X, 1), size(Y, 1)
-    model = Dense(d => K)
+    model = Dense(d => K; init=_dense_init(rng))
     _train!(model, X, Y, _multiclass_hinge; epochs, lr, l2, rng)
     return model
 end
@@ -65,7 +73,8 @@ end
 "Small MLP: one hidden layer (relu) + softmax cross-entropy."
 function train_mlp(X, Y; hidden=128, epochs=400, lr=0.01, l2=1e-4, rng=Random.default_rng())
     d, K = size(X, 1), size(Y, 1)
-    model = Chain(Dense(d => hidden, relu), Dense(hidden => K))
+    model = Chain(Dense(d => hidden, relu; init=_dense_init(rng)),
+                  Dense(hidden => K; init=_dense_init(rng)))
     _train!(model, X, Y, Flux.logitcrossentropy; epochs, lr, l2, rng)
     return model
 end

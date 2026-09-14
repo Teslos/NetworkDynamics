@@ -32,6 +32,13 @@ Consequences:
 | train/test networks solved separately | 0.424 ± 0.092 | yes |
 | raw-pixel logistic regression, same split | ≈0.933 | yes |
 
+These variants were computed inside one process from a single spike encoding per
+seed, so they are paired on the encoding; they were, however, run before the
+readout initialisation was seeded, so each variant drew a different readout init.
+The readout is a convex full-batch fit and the effects below are 30-40 points, so
+this does not threaten the conclusions, but the comparison was not as controlled
+as it should have been.
+
 Two hypotheses were tested and one survived:
 
 * **Initial conditions (rejected).** Every node starts at a random `z0`; the
@@ -61,19 +68,32 @@ It is also cheap to deploy. The train trajectories do not depend on the query, s
 they are computed once and cached; a new sample then costs a single-node solve
 driven by its own input plus the cached field, not a 1797-node solve.
 
-## Full resolution (N=1797, 3 paired seeds)
+## Full resolution (N=1797, 3 seeds per mode)
 
-| seed | transductive | fixed reservoir | paired difference |
-|---|---:|---:|---:|
-| 1 | 0.9415 | 0.9387 | −0.28 pp |
-| 2 | 0.9331 | 0.9359 | +0.28 pp |
-| 3 | 0.9248 | 0.9164 | −0.84 pp |
-| **mean** | **0.9331 ± 0.0084** | **0.9303 ± 0.0121** | **−0.28 ± 0.56 pp** |
+| seed label | transductive | fixed reservoir |
+|---|---:|---:|
+| 1 | 0.9415 | 0.9387 |
+| 2 | 0.9331 | 0.9359 |
+| 3 | 0.9248 | 0.9164 |
+| **mean** | **0.9331 ± 0.0084** | **0.9303 ± 0.0121** |
 
-The inductive variant matches the transductive one within seed noise, winning on
-one seed of three. At full resolution the transduction buys nothing measurable;
-the earlier N=300 gap (0.855 vs 0.849) likewise sat inside the noise. Solve time
-≈ 39–83 min per run.
+The inductive variant matches the transductive one within run-to-run noise. At
+full resolution the transduction buys nothing measurable; the earlier N=300 gap
+(0.855 vs 0.849) likewise sat inside the noise. Solve time ≈ 39–83 min per run.
+
+**Correction (2026-09-14).** This table was first published as a *paired*
+comparison with a per-seed difference of −0.28 ± 0.56 pp. It is not paired. The
+spike encoder drew its Bernoulli spikes from the global RNG (see
+`src/utils/spikerate.jl`), so each of these six runs — separate process
+invocations — encoded its data differently, and rows sharing a seed label do not
+share an encoding. The means above remain valid estimates of each mode, but the
+per-seed differences are not pairs and the ±0.56 pp precision was unearned. The
+encoder now takes an explicit `rng`, and a second unseeded source has been fixed
+alongside it: Flux's `Dense` initialised the readout from the global RNG even
+when `train_logreg` was handed a seed, so `rng=` was a no-op for every model in
+`src/baselines/baseline_models.jl`. Two runs of the same command now agree
+exactly. These numbers should be regenerated under the seeded pipeline before
+being used anywhere load-bearing.
 
 Caveat on the comparison: `fixed_reservoir` also changes the *training* nodes
 slightly, because their row sums no longer include the test columns (~20% fewer
@@ -91,8 +111,12 @@ clean control if it ever did.
    coupled into it — not a reservoir in the usual sense of fixed internal state
    driven by one sample at a time.
 3. Keep the claim that the coupling does the computational work; it is now
-   supported by a direct ablation (0.93 coupled vs ≈0.50 uncoupled at N=300)
-   rather than assumed.
+   supported by a direct ablation (0.85 coupled vs ≈0.50 uncoupled) rather than
+   assumed. Note that this ablation exists only at **N=300**. Because the
+   coupling is not degree-normalised, the aggregate drive on a node grows with
+   N, so N=300 and N=1797 are different dynamical regimes at the same σ=0.72;
+   the uncoupled arm has not been measured at full resolution, and the claim
+   should not be quoted as if it had.
 4. Note for the physical-realizability argument: the directed coupling breaks the
    symmetry of `W`. A hardware implementation needs either directed coupling or a
    frozen reference population.

@@ -61,7 +61,7 @@ mu = mean(Xs, dims = 2); sd = std(Xs, dims = 2) .+ 1e-9
 Z  = (Xs .- mu) ./ sd                      # standardised, as the original feeds it
 
 # spike-encode: (16, nuse) -> (NSTEPS, nuse, 16)
-Sp = spikerate.rate(permutedims(Z), NSTEPS)
+Sp = spikerate.rate(permutedims(Z), NSTEPS; rng=Xoshiro(SEED + 100_000))
 Sp = Float64.(permutedims(Sp, (2, 3, 1)))  # (nuse, 16, NSTEPS)
 
 # reservoir coupling: complete graph over NRES nodes, diffusive, positive weights

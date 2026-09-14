@@ -62,7 +62,9 @@ const EPS = 0.05
 const A = 0.5
 const R0 = 0.5
 const SIGMA = 0.72
-const NSTEPS = 32           # spike-encoding time steps
+# spike-encoding time steps; --nsteps shortens the drive for fast test runs
+nsteps_arg = findfirst(==("--nsteps"), ARGS)
+const NSTEPS = nsteps_arg === nothing ? 32 : parse(Int, ARGS[nsteps_arg + 1])
 
 # ----- data: optdigits.tes == sklearn load_digits, as (samples, 8, 8)
 function load_digit_images(; path=joinpath(@__DIR__, "..", "data", "digits", "optdigits.tes"))
@@ -83,7 +85,12 @@ println("Using N=$N digit-nodes, mode=$MODE (classes: $(sort(unique(y))))")
 
 # ----- spike encode: (N,8,8) pixels/16 -> drive matrix S (N, 2048)
 x = imgs ./ 16.0
-S = spikerate.rate(x, NSTEPS)                       # (32, N, 8, 8)
+# The Bernoulli draws of the rate encoder default to the GLOBAL rng, which
+# de-seeds the whole experiment: two runs of the same command gave test_acc
+# 0.7333 and 0.6667 before this was fixed. A dedicated stream keeps the other
+# random components (subset, coupling matrix, initial conditions) byte-identical.
+enc_rng = Xoshiro(SEED + 100_000)
+S = spikerate.rate(x, NSTEPS; rng=enc_rng)          # (32, N, 8, 8)
 S = permutedims(S, (2, 1, 3, 4))                    # (N, 32, 8, 8)
 S = Float64.(reshape(S, N, NSTEPS * 64))            # (N, 2048)
 const T = size(S, 2)
