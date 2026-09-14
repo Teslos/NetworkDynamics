@@ -60,9 +60,10 @@ Two hypotheses were tested and one survived:
   the halves separately puts them in different coordinate systems and scores
   *worse* (0.424) than having no network at all (0.498).
 
-So the network coupling carries the accuracy — 0.85 coupled against 0.50
-uncoupled — which supports the paper's thesis that the dynamics compute. What it
-does **not** need is the test set inside the network.
+So on this implementation the coupling appeared to carry almost all of the
+accuracy — 0.85 coupled against 0.50 uncoupled. **That reading was wrong, and is
+retracted below**: see "What the uncoupled control actually shows". What does
+hold is that the network does **not** need the test set inside it.
 
 ## The repair: the training batch is the reservoir
 
@@ -130,3 +131,42 @@ clean control if it ever did.
 4. Note for the physical-realizability argument: the directed coupling breaks the
    symmetry of `W`. A hardware implementation needs either directed coupling or a
    frozen reference population.
+
+## What the uncoupled control actually shows (2026-09-14, supersedes the above)
+
+Rerun at **full resolution** on the redesigned classifier
+(`fhn-digit-inductive-redesign`, ten seeds, seeded pipeline, fit/predict
+boundary, `row_total` normalisation):
+
+| arm | test accuracy | paired vs row_total |
+|---|---:|---|
+| redesigned, `row_total` (recommended) | **0.9273 ± 0.0161** | — |
+| redesigned, `per_edge` (historical scaling) | 0.9351 ± 0.0133 | −0.78 ± 1.70 pp, wins 3/10 |
+| **uncoupled, σ = 0** | **0.8368 ± 0.0195** | **+9.05 ± 1.93 pp, wins 10/10** |
+| historical masked joint solve | 0.9306 ± 0.0142 | — |
+
+**The uncoupled control is 0.837, not ≈0.50.** The earlier figure was measured on
+the pre-redesign implementation at N=300 and does not survive. The coupling is
+worth **9.05 ± 1.93 percentage points**, consistently (10/10 seeds) but far from
+the 43-point collapse reported above.
+
+The discrepancy has the same cause as the "common frame" finding higher up the
+page, drawn to the wrong conclusion. In the old implementation, setting σ = 0
+also destroyed the frame in which train and test features were commensurable, so
+0.50 measured *no coupling plus incommensurate features*. The redesign fixes the
+frame by construction — every sample passes through the same fitted
+virtual-query map — so σ = 0 now isolates the coupling alone. The old number
+measured the frame problem, not the physics.
+
+Two further points from the same run:
+
+* `per_edge` is nominally **higher** than `row_total` (by 0.8 ± 1.7 pp, not
+  clearing the seed scatter). The normalisation buys portability of σ across
+  reservoir sizes, not accuracy. It is also ~6x cheaper to fit (57 s vs 349 s),
+  since the unnormalised coupling is much stiffer at N = 1797.
+* Every arm agrees with the manuscript's original transductive 0.926 ± 0.013 to
+  within the seed scatter. The full chain of corrections — leakage removed,
+  coupling normalised, two RNG sources seeded, the adaptive-solver channel
+  eliminated by the cached fit — costs nothing in accuracy.
+
+Per-seed records: `results/logs/fhn_arms_fullres.txt`.
