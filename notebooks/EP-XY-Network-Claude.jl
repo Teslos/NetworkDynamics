@@ -92,6 +92,14 @@ function xy_force!(F, phase, p, t)
         end
         F[j] = -acc - h[j] * sin(pj - psi[j])
     end
+    # Cost nudge on the output cells. The added force is -beta * dC/dphi_j for
+    #     C(d) = -log((1 + cos d)/2),     d = phase_j - target_m,
+    # Wang's LOGARITHMIC phase cost (zero at d=0, divergent at d=pi), since
+    # d/dd[-log(1+cos d)] = sin(d)/(1+cos d). This -- not the cosine deviation
+    # reported by `batch_costs` -- is the objective the EP gradient descends;
+    # `batch_log_cost` evaluates it. The two agree to first order about d=0
+    # (both ~ d/2) but differ by sec^2(d/2) in their derivative at finite |d|,
+    # so any finite-difference check of the EP gradient must use the log cost.
     if p.beta != 0.0
         @inbounds for (m, j) in enumerate(p.output_index)
             d = phase[j] - p.target[m]
@@ -154,11 +162,32 @@ end
 # Cost and EP gradients
 # ----------------------------------------------------------------------------
 
+# Reported training diagnostic: the cosine deviation (1 - cos d)/2, bounded in
+# [0, 1] per output and convenient to read. NOTE that this is NOT the objective
+# the nudge differentiates -- see `xy_force!` and `batch_log_cost`. It is kept
+# as the logged cost because it is bounded (the log cost diverges at d = pi) and
+# because every recorded training curve in results/ is in these units; it shares
+# its minimiser with the log cost, so it remains a valid progress monitor.
 function batch_costs(equilibria, target_batch, output_index; tol=0.1)
     deviation = 1.0 .- cos.(equilibria[:, output_index] .- target_batch)
     cost = mean(vec(sum(deviation, dims=2)) ./ 2)
     q_cost = mean(vec(sum(deviation .> tol, dims=2)) ./ 2)
     return cost, q_cost
+end
+
+"""
+    batch_log_cost(equilibria, target_batch, output_index)
+
+Wang's logarithmic phase cost `C = -sum_j log((1 + cos d_j)/2)`, averaged over
+the batch -- the objective whose derivative the `xy_force!` nudge implements,
+and therefore the one the EP parameter gradient estimates. Use this, not
+`batch_costs`, as the reference when validating the EP gradient by finite
+differences. `floor` guards the divergence at `d = pi`.
+"""
+function batch_log_cost(equilibria, target_batch, output_index; floor=1e-12)
+    d = equilibria[:, output_index] .- target_batch
+    c = -log.(max.((1.0 .+ cos.(d)) ./ 2, floor))
+    return mean(vec(sum(c, dims=2)))
 end
 
 function weights_gradient(equi_nudge, equi_free)
@@ -208,7 +237,13 @@ function EP_param_gradient(W, bias, phase_0, target_batch, beta,
 
     cost, q_cost = batch_costs(equi_zero, target_batch, output_index)
     gW, gh = paras_gradient(equi_nudge, equi_free, bias)
-    return gW ./ scale, gh ./ scale, cost, q_cost
+    # The returned gradients estimate the derivative of the LOG cost (the one the
+    # nudge implements); `cost`/`q_cost` are the cosine-deviation diagnostics kept
+    # for continuity with the recorded training curves, and `log_cost` is the
+    # value of the objective actually being descended. Callers that unpack four
+    # values are unaffected.
+    log_cost = batch_log_cost(equi_zero, target_batch, output_index)
+    return gW ./ scale, gh ./ scale, cost, q_cost, log_cost
 end
 
 # ----------------------------------------------------------------------------

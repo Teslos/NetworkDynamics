@@ -14,26 +14,44 @@ the **same 4×4 features** for a fair bar at the XY net's input resolution.
 
 ## Results
 
-| model    | train acc | test acc |
-|----------|----------:|---------:|
-| XY (EP)  | 0.792     | 0.767    |
-| logreg   | 0.852     | 0.843    |
-| MLP      | 0.962     | 0.883    |
+Multi-seed rerun (2026-09-13), 5 seeds, mean +/- std:
 
-Chance = 0.100. Trained 80 epochs in **165 s** (cost 2.577 → 0.811).
+| model                       | train acc     | test acc      |
+|-----------------------------|--------------:|--------------:|
+| XY (EP), training-cost sel. | 0.708 +/- 0.056 | **0.701 +/- 0.059** |
+| XY (EP), validation sel.    | -             | 0.659 +/- 0.064 |
+| logreg                      | -             | 0.841 +/- 0.011 |
+| MLP                         | -             | 0.879 +/- 0.022 |
+
+Per-seed test: 0.727, 0.700, 0.663, 0.630, 0.783. The originally reported
+single-seed value was 0.767 -- the best of the five seeds is 0.783, so seed 1 was
+a favourable draw and the typical outcome is ~6.6 pp lower.
+
+Note on selection: unlike the Duffing digit scripts, this one never selected on
+the test set. It keeps the checkpoint with the lowest **training cost**, which is
+a legitimate criterion, and the test partition was always evaluated once. The
+defect here was only the single seed. The rerun also records a
+validation-selected checkpoint for comparability with the other scripts; it is
+*worse* here (0.659 vs 0.701), because validation is scored every 10 epochs on
+120 held-out images while the training cost is available every epoch on all of
+them -- a reminder that with a small validation split, selection noise can cost
+more than selection bias saves.
+
+Chance = 0.100. Training takes ~165 s/seed alone; the rerun took ~930 s/seed
+under load. Per-seed records: `results/xy_digits_stage2_seeds.json`.
 (For context, the repo's full-8×8 baselines are logreg ~95.9%, MLP ~97.6%, FHN
 reservoir ~93.6% — higher because they use the full resolution, not 4×4.)
 
 ## Conclusion — scales to 10-class, but under-trained here (not a ceiling)
 
-EP-XY is a **genuine 10-class classifier** (76.7% test, far above 10% chance),
-but under this cut-down budget it **trails logreg (84.3%) and MLP (88.3%)** — it
+EP-XY is a **genuine 10-class classifier** (70.1 +/- 5.9% test, far above 10% chance),
+but under this cut-down budget it **trails logreg (84.1%) and MLP (87.9%)** — it
 no longer matches the linear baseline as it did on the easier 3/5-class subsets.
 
 The important diagnostic is the *direction* of the failure:
 
-- **It is underfitting, not overfitting.** XY train accuracy (0.792) is barely
-  above its test (0.767) and **below logreg's train (0.852)** and MLP's (0.962).
+- **It is underfitting, not overfitting.** XY train accuracy (0.708 +/- 0.056) is
+  barely above its test (0.701 +/- 0.059) and **below logreg's train**.
   The XY net did not even fit the training set, so the test gap is not a
   generalization problem.
 - **The cost did not converge.** It fell 2.58 → 0.81 but was still high and

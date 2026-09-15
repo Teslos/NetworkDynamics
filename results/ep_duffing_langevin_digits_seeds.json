@@ -1,0 +1,46 @@
+{
+  "hidden": 40,
+  "summary": {
+    "logreg_mean": 0.835,
+    "val_mean": 0.375,
+    "seconds_std": null,
+    "test_final_std": null,
+    "test_std": null,
+    "test_final_mean": 0.4175,
+    "val_std": null,
+    "logreg_std": null,
+    "train_mean": 0.39375,
+    "selected_iter_mean": 20.0,
+    "train_std": null,
+    "selected_iter_std": null,
+    "mlp_mean": 0.8625,
+    "mlp_std": null,
+    "seconds_mean": 27.838000059127808,
+    "test_mean": 0.4175,
+    "seed_std": null,
+    "seed_mean": 1.0
+  },
+  "iterations": 20,
+  "per_seed": [
+    {
+      "test": 0.4175,
+      "mlp": 0.8625,
+      "val": 0.375,
+      "train": 0.39375,
+      "selected_iter": 20,
+      "seed": 1,
+      "test_final": 0.4175,
+      "logreg": 0.835,
+      "seconds": 27.838000059127808
+    }
+  ],
+  "test_per_class": 40,
+  "train_per_class": 40,
+  "beta": 0.1,
+  "temperature": 0.3,
+  "validation_fraction": 0.2,
+  "seeds": [
+    1
+  ],
+  "inputs": "pooled 16"
+}

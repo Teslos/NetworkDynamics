@@ -35,6 +35,7 @@ class EnergyOscillatorHead(nn.Module):
         use_ode: bool = True,
         ode_rtol: float = 1e-3,
         ode_atol: float = 1e-5,
+        coupling_enabled: bool = True,
     ) -> None:
         super().__init__()
 
@@ -61,9 +62,19 @@ class EnergyOscillatorHead(nn.Module):
         self.field_cos = nn.Linear(feature_dim, n_classes)
         self.field_sin = nn.Linear(feature_dim, n_classes)
 
-        self.raw_coupling = nn.Parameter(
-            coupling_scale * torch.randn(n_classes, n_classes)
-        )
+        # When coupling is disabled the output oscillators are independent: the
+        # pair term vanishes identically and K contributes no trainable
+        # parameters, so the ablation is an honest parameter comparison rather
+        # than a coupled model whose weights merely happen to be small.
+        self.coupling_enabled = coupling_enabled
+        if coupling_enabled:
+            self.raw_coupling = nn.Parameter(
+                coupling_scale * torch.randn(n_classes, n_classes)
+            )
+        else:
+            self.register_buffer(
+                "raw_coupling", torch.zeros(n_classes, n_classes)
+            )
 
     def symmetric_coupling(self) -> Tensor:
         """Return a symmetric coupling matrix with zero diagonal."""
@@ -285,6 +296,53 @@ class EnergyOscillatorHead(nn.Module):
         """Mean L2 norm of the phase-energy gradient (diagnostic)."""
         gradient = self.phase_gradient(phi=phi, z=z)
         return gradient.norm(dim=1).mean()
+
+    def residual_per_sample(
+        self,
+        z: Tensor,
+        phi: Tensor,
+        labels: Tensor | None = None,
+        beta: float = 0.0,
+    ) -> Tensor:
+        """Per-sample residual ||d(E + beta*C)/dphi||_2, shape [batch].
+
+        ``equilibrium_residual`` averages this over the batch. The stopping
+        criterion is imposed on that batch mean, so a batch can satisfy it
+        while individual samples remain far from equilibrium; the per-sample
+        form is what the convergence diagnostics report.
+        """
+        gradient = self.phase_gradient(phi=phi, z=z, labels=labels, beta=beta)
+        return gradient.norm(dim=1)
+
+    def analytic_free_equilibrium(
+        self, z: Tensor, field_floor: float = 1e-8
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Closed-form free equilibrium, valid only when the coupling vanishes.
+
+        With K = 0 the energy separates into one term per class,
+
+            E_c = -a_c cos(phi_c) - b_c sin(phi_c) = -r_c cos(phi_c - psi_c),
+
+        whose unique minimum on the circle is phi_c* = atan2(b_c, a_c) whenever
+        r_c = sqrt(a_c^2 + b_c^2) > 0, giving cos(phi_c*) = a_c / r_c. When
+        r_c = 0 the energy is constant in phi_c and the equilibrium is not
+        determined; those entries are flagged rather than silently assigned.
+
+        Returns:
+            (phi_star, r, determined) with shapes [batch, C], [batch, C],
+            [batch, C] (bool).
+        """
+        if self.coupling_enabled:
+            raise RuntimeError(
+                "analytic_free_equilibrium is only valid for an uncoupled head "
+                "(coupling_enabled=False); with K != 0 the minimum has no "
+                "closed form."
+            )
+        a = self.field_cos(z)
+        b = self.field_sin(z)
+        r = torch.sqrt(a * a + b * b)
+        phi_star = torch.atan2(b, a)
+        return phi_star, r, r > field_floor
 
     @torch.no_grad()
     def predict(self, z: Tensor) -> Tensor:

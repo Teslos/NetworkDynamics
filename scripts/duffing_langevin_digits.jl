@@ -22,23 +22,34 @@ EP_DUFFING_SKIP_RUN = true
 include(joinpath(@__DIR__, "..", "notebooks", "EP-Duffing-Network.jl"))   # adam_update
 
 # ---------------- hyperparameters ----------------
-const SEED    = 1
+const SEEDS   = 1:parse(Int, get(ENV, "DUF_LGV_SEEDS", "5"))
+const VAL_FRAC = 0.2
 const FULLRES = ("fullres" in ARGS)   # full 64-px inputs vs 4x4-pooled 16 (default)
 const NHID    = FULLRES ? 64 : 40     # monostable hidden units
 const A_H     = 1.0          # hidden quadratic coeff > 0  -> single well (monostable)
 const T_SAMP  = 0.30         # sampling temperature (Langevin)
 const BETA    = 0.1
 const LR      = 0.01
-const N_ITER  = FULLRES ? 450 : 300
+const N_ITER  = parse(Int, get(ENV, "DUF_LGV_ITER", FULLRES ? "450" : "300"))
 const BATCH   = 64
 const N_BURN  = 200
 const N_SAMPLE= 350
 const N_TRAIN_PC = FULLRES ? 120 : 40
 const N_TEST_PC  = 40
 const EVAL_EVERY = 20
+const OUTFILE = joinpath(@__DIR__, "..", "results",
+    FULLRES ? "ep_duffing_langevin_digits_fullres_seeds.json" : "ep_duffing_langevin_digits_seeds.json")
+
+include(joinpath(@__DIR__, "..", "src", "utils", "eval_protocol.jl"))
+using .EvalProtocol
+
+# Evaluation protocol (revised 2026-09-12): the checkpoint is selected on a
+# stratified 20% validation split carved out of the training partition, the test
+# partition is evaluated once per seed on checkpoints fixed in advance, and the
+# result is a mean over seeds. See src/utils/eval_protocol.jl. The earlier
+# single-seed, test-selected number for this script was 0.80 (pooled 16).
 
 # ---------------- data ----------------
-Random.seed!(SEED)
 raw  = readdlm(joinpath(@__DIR__, "..", "data", "digits", "optdigits.tes"), ',', Int)
 const XALL = Float64.(raw[:, 1:64]); const YALL = raw[:, 65]
 pool4x4(v) = (img = reshape(v, 8, 8);
@@ -111,8 +122,8 @@ logreg_acc(Xtr, ytr, Xte, yte, nc; iters=800, lr=0.5, l2=1e-3) = begin
     end
     L = Xte*W .+ b'; mean([argmax(@view L[i, :]) for i in 1:size(Xte, 1)] .== yte)
 end
-mlp_acc(Xtr, ytr, Xte, yte, nc; hh=64, iters=3000, lr=0.2, l2=1e-4) = begin
-    rng = MersenneTwister(SEED); n, d = size(Xtr)
+mlp_acc(Xtr, ytr, Xte, yte, nc, seed; hh=64, iters=3000, lr=0.2, l2=1e-4) = begin
+    rng = MersenneTwister(seed); n, d = size(Xtr)
     W1 = 0.1*randn(rng, d, hh); b1 = zeros(hh); W2 = 0.1*randn(rng, hh, nc); b2 = zeros(nc)
     Y = zeros(n, nc); for i in 1:n; Y[i, ytr[i]] = 1.0; end
     for _ in 1:iters
@@ -125,48 +136,80 @@ mlp_acc(Xtr, ytr, Xte, yte, nc; hh=64, iters=3000, lr=0.2, l2=1e-4) = begin
 end
 
 # ---------------- split ----------------
-rng = MersenneTwister(SEED); cc = Dict(c => j for (j, c) in enumerate(0:9)); tr = Int[]; te = Int[]
-for c in 0:9
-    ci = shuffle(rng, findall(==(c), YALL))
-    append!(tr, ci[1:N_TRAIN_PC]); append!(te, ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC])
+const CC = Dict(c => j for (j, c) in enumerate(0:9))
+function make_split(seed)
+    tr, va, te = class_split(YALL, collect(0:9), N_TRAIN_PC, N_TEST_PC; val_frac=VAL_FRAC, seed=seed)
+    lab(idx) = [CC[c] for c in YALL[idx]]
+    ftr, fva, fte = featmat(tr), featmat(va), featmat(te)
+    return (Xtrp=ftr, Xvap=fva, Xtep=fte,
+            Xtr=2 .* ftr .- 1, Xva=2 .* fva .- 1, Xte=2 .* fte .- 1,
+            ytr=lab(tr), yva=lab(va), yte=lab(te))
 end
-Xtrp = featmat(tr); Xtep = featmat(te)
-ytr = [cc[c] for c in YALL[tr]]; yte = [cc[c] for c in YALL[te]]
-Xtr = 2 .* Xtrp .- 1; Xte = 2 .* Xtep .- 1; Nd = length(ytr)
-Ytr = [ytr[i] == j ? 1.0 : 0.0 for i in eachindex(ytr), j in 1:NCLS]
 
-function digit_acc(W, h, X, y, T)
-    n = size(X, 1); x0 = zeros(n, NN); x0[:, INP] .= X; x0[:, VARc] .= 0.1*randn(rng, n, length(VARc))
+# `var_init` is a frozen draw and the sampler RNG is fixed, so the score depends
+# only on (W, h).
+function digit_acc(W, h, X, y, T, var_init)
+    n = size(X, 1); x0 = zeros(n, NN); x0[:, INP] .= X; x0[:, VARc] .= var_init
     _, _, mx = lang_relax(W, h, x0, zeros(n, NCLS), 0.0, T; n_burn=250, n_sample=400, rng=MersenneTwister(77))
     o = mx[:, OUTc]; mean([argmax(@view o[i, :]) for i in 1:n] .== y)
 end
 
 # ---------------- train ----------------
 println("threads=$(Threads.nthreads())  N=$NN ($NIN in, $NHID mono-hidden, $NCLS out)  " *
-        "T=$T_SAMP  train=$Nd test=$(length(yte))")
-W = 0.1*randn(rng, NN, NN); W = (W+W')/2; W .*= MSK; h = zeros(NN)
-sW = zeros(NN, NN); rW = zeros(NN, NN); sh = zeros(NN); rh = zeros(NN)
-best = 0.0; bW = copy(W); bh = copy(h); t0 = time()
-for it in 1:N_ITER
-    bi = rand(rng, 1:Nd, BATCH)
-    x0 = zeros(BATCH, NN); x0[:, INP] .= Xtr[bi, :]; x0[:, VARc] .= 0.1*randn(rng, BATCH, length(VARc))
-    gW, gh, ce = lang_grad(W, h, x0, Ytr[bi, :], BETA, T_SAMP)
-    global W, sW, rW = adam_update(W, gW, LR, it, sW, rW); global W = (W+W')/2; global W .*= MSK
-    global h, sh, rh = adam_update(h, gh, LR, it, sh, rh)
-    if it == 1 || it % EVAL_EVERY == 0
-        a = digit_acc(W, h, Xte, yte, T_SAMP)
-        if a > best; global best = a; global bW = copy(W); global bh = copy(h); end
-        @printf("  it %d: CE %.3f  test %.3f (best %.3f) [%.0fs]\n", it, ce, a, best, time()-t0)
+        "T=$T_SAMP  seeds=$(collect(SEEDS))  (checkpoint selected on validation, test once per seed)")
+
+function run_seed(seed)
+    s = make_split(seed); Nd = length(s.ytr)
+    Ytr = [s.ytr[i] == j ? 1.0 : 0.0 for i in eachindex(s.ytr), j in 1:NCLS]
+    rng = MersenneTwister(seed)
+    W = 0.1*randn(rng, NN, NN); W = (W+W')/2; W .*= MSK; h = zeros(NN)
+    nvar = length(VARc)
+    init_tr = frozen_init(7000+seed, Nd, nvar; scale=0.1)
+    init_va = frozen_init(8000+seed, length(s.yva), nvar; scale=0.1)
+    init_te = frozen_init(9000+seed, length(s.yte), nvar; scale=0.1)
+    sW = zeros(NN, NN); rW = zeros(NN, NN); sh = zeros(NN); rh = zeros(NN)
+    best_va = -1.0; bW = copy(W); bh = copy(h); best_it = 0
+    @printf("=== seed %d: train=%d val=%d test=%d ===\n", seed, Nd, length(s.yva), length(s.yte))
+    t0 = time()
+    for it in 1:N_ITER
+        bi = rand(rng, 1:Nd, BATCH)
+        x0 = zeros(BATCH, NN); x0[:, INP] .= s.Xtr[bi, :]; x0[:, VARc] .= 0.1*randn(rng, BATCH, nvar)
+        gW, gh, ce = lang_grad(W, h, x0, Ytr[bi, :], BETA, T_SAMP)
+        W, sW, rW = adam_update(W, gW, LR, it, sW, rW); W = (W+W')/2; W .*= MSK
+        h, sh, rh = adam_update(h, gh, LR, it, sh, rh)
+        if it == 1 || it % EVAL_EVERY == 0
+            va = digit_acc(W, h, s.Xva, s.yva, T_SAMP, init_va)
+            if va > best_va; best_va = va; bW = copy(W); bh = copy(h); best_it = it; end
+            @printf("  it %d: CE %.3f  val %.3f (best %.3f @ %d) [%.0fs]\n", it, ce, va, best_va, best_it, time()-t0)
+        end
     end
+    secs = time() - t0
+    # The test partition is evaluated here only, on checkpoints fixed in advance.
+    te_sel = digit_acc(bW, bh, s.Xte, s.yte, T_SAMP, init_te)
+    te_fin = digit_acc(W, h, s.Xte, s.yte, T_SAMP, init_te)
+    tr_acc = digit_acc(bW, bh, s.Xtr, s.ytr, T_SAMP, init_tr)
+    lr_te = logreg_acc(s.Xtrp, s.ytr, s.Xtep, s.yte, NCLS)
+    ml_te = mlp_acc(s.Xtrp, s.ytr, s.Xtep, s.yte, NCLS, seed)
+    @printf("  seed %d done in %.0fs: train %.3f | val %.3f @ it %d | test %.3f (final iterate %.3f) | logreg %.3f | MLP %.3f\n\n",
+            seed, secs, tr_acc, best_va, best_it, te_sel, te_fin, lr_te, ml_te)
+    return (seed=seed, train=tr_acc, val=best_va, selected_iter=best_it, test=te_sel,
+            test_final=te_fin, logreg=lr_te, mlp=ml_te, seconds=secs)
 end
 
-du_te = digit_acc(bW, bh, Xte, yte, T_SAMP); du_tr = digit_acc(bW, bh, Xtr, ytr, T_SAMP)
-lr_te = logreg_acc(Xtrp, ytr, Xtep, yte, NCLS); ml_te = mlp_acc(Xtrp, ytr, Xtep, yte, NCLS)
-println("\n", "="^54)
-@printf("%-30s | %-7s %-7s (chance %.2f)\n", "model", "train", "test", 1/NCLS)
-println("-"^54)
+results = [run_seed(seed) for seed in SEEDS]
+du = [r.test for r in results]; duf = [r.test_final for r in results]
 const FEATLBL = FULLRES ? "64 px" : "pooled 16"
-@printf("%-30s | %-7.3f %-7.3f\n", "Langevin monostable EP (best)", du_tr, du_te)
-@printf("%-30s | %-7s %-7.3f\n", "logreg ($FEATLBL)", "-", lr_te)
-@printf("%-30s | %-7s %-7.3f\n", "MLP ($FEATLBL)", "-", ml_te)
-println("\nRef: deterministic mono v2 ~0.8x; XY phase net 0.94; bistable 0.18")
+println("\n", "="^68)
+@printf("%d seeds, %s, chance %.2f. Test evaluated once per seed.\n", length(results), FEATLBL, 1/NCLS)
+println("-"^68)
+@printf("%-30s | %-16s %-16s\n", "model", "train", "test")
+@printf("%-30s | %-16s %-16s\n", "Langevin monostable EP (val-sel)", msfmt([r.train for r in results]), msfmt(du))
+@printf("%-30s | %-16s %-16s\n", "  (final iterate)", "-", msfmt(duf))
+@printf("%-30s | %-16s %-16s\n", "logreg ($FEATLBL)", "-", msfmt([r.logreg for r in results]))
+@printf("%-30s | %-16s %-16s\n", "MLP ($FEATLBL)", "-", msfmt([r.mlp for r in results]))
+println("-"^68)
+@printf("per-seed test: %s\n", join((@sprintf("%.3f", a) for a in du), ", "))
+write_seed_record(OUTFILE, Dict("seeds"=>collect(SEEDS), "iterations"=>N_ITER, "hidden"=>NHID,
+    "validation_fraction"=>VAL_FRAC, "train_per_class"=>N_TRAIN_PC, "test_per_class"=>N_TEST_PC,
+    "beta"=>BETA, "temperature"=>T_SAMP, "inputs"=>FEATLBL), results)
+println("\nwrote ", OUTFILE)

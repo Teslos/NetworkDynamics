@@ -1,120 +1,94 @@
-# Faithful, runnable reproduction of the FHN reservoir digit classifier from
-# src/classification/FitzHug-Nagumo-MNIST-Ridge.jl, to check the paper's 88%.
+# Inductive FHN-reservoir classifier for the sklearn/UCI 8x8 digits dataset.
 #
-# The original cannot run on this machine: it uses the removed NetworkDynamics
-# old API (network_dynamics/ODEVertex/StaticEdge; installed version is 0.9.7),
-# `@sk_import load_digits` (PyCall not built), and references undefined globals.
-# This script reproduces the *method* exactly:
-#   - digits from optdigits.tes (== sklearn load_digits), pixels/16
-#   - rate spike encoding, 32 steps -> 32*8*8 = 2048-length drive per digit
-#   - a complete-graph FHN reservoir with N = N_samples nodes, each node driven
-#     by one digit, diffusive coupling of strength sigma=0.72, eps=0.05, a=0.5
-#   - readout = logistic regression on each node's u-trajectory (2048 features)
-#   - 80/20 stratified split (1437/360, matching the paper)
+# Unlike the historical implementation, test samples are never nodes in the
+# training ODE. The training population is solved once and cached. Each query is
+# then integrated as an independent two-state FHN oscillator driven by:
+#   1. its own deterministic rate encoding; and
+#   2. a fixed weighted projection of the cached training trajectories.
 #
-# The all-to-all diffusive coupling is written as a dense matvec W*u, so the
-# 1797-node / 3.2M-edge solve is cheap.
+# This gives an actual fit/predict boundary: the fitted model is independent of
+# the number, ordering, and values of test samples, and predicting a sample does
+# not require re-solving the training reservoir.
 #
 # Usage:
-#   julia --project=. scripts/run_fhn_digits.jl           # full N=1797
-#   julia --project=. scripts/run_fhn_digits.jl --n 300   # quick subset
+#   julia --project=. scripts/run_fhn_digits.jl
+#   julia --project=. scripts/run_fhn_digits.jl --quick
+#   julia --project=. scripts/run_fhn_digits.jl --n 300 --nsteps 4
+#   julia --project=. scripts/run_fhn_digits.jl --seed 7 --sigma 0.72
+#   julia --project=. scripts/run_fhn_digits.jl --normalization per_edge
+#
+# `row_total` is the paper-safe default: every oscillator receives total
+# coupling `sigma`, independent of reservoir size. `per_edge` is retained only
+# as an explicit ablation matching the historical size-dependent convention.
 
-include(joinpath(@__DIR__, "..", "src", "baselines", "baseline_utils.jl"))
-include(joinpath(@__DIR__, "..", "src", "baselines", "baseline_models.jl"))
-include(joinpath(@__DIR__, "..", "src", "utils", "spikerate.jl"))
-using .BaselineUtils, .BaselineModels, .spikerate
-using OrdinaryDiffEq, LinearAlgebra, Statistics, Random, Distributions, Printf, DelimitedFiles
+include(joinpath(@__DIR__, "..", "src", "baselines", "fhn_digit_classifier.jl"))
+using .FHNDigitClassifier
+using .FHNDigitClassifier.BaselineUtils
+using Random
+using Statistics
+using Printf
 
-# ----- args
-n_arg = findfirst(==("--n"), ARGS)
-const NSAMP = n_arg === nothing ? 1797 : parse(Int, ARGS[n_arg + 1])
-const SEED = 1234
-
-# ----- FHN reservoir params (from the original script)
-const EPS = 0.05
-const A = 0.5
-const R0 = 0.5
-const SIGMA = 0.72
-const NSTEPS = 32           # spike-encoding time steps
-
-# ----- data: optdigits.tes == sklearn load_digits, as (samples, 8, 8)
-function load_digit_images(; path=joinpath(@__DIR__, "..", "data", "digits", "optdigits.tes"))
-    raw = readdlm(path, ',', Int)
-    imgs = reshape(permutedims(Float64.(raw[:, 1:64])), 8, 8, :)   # (8,8,N)
-    imgs = permutedims(imgs, (3, 1, 2))                            # (N,8,8)
-    return imgs, raw[:, 65]
+function option(name::String, default, parse_value)
+    index = findfirst(==(name), ARGS)
+    index === nothing && return default
+    index < length(ARGS) || error("$name requires a value")
+    return parse_value(ARGS[index + 1])
 end
+
+const QUICK = "--quick" in ARGS
+const NSAMP = option("--n", QUICK ? 300 : 1797, x -> parse(Int, x))
+const NSTEPS = option("--nsteps", QUICK ? 4 : 32, x -> parse(Int, x))
+const SEED = option("--seed", 1234, x -> parse(Int, x))
+const SIGMA = option("--sigma", 0.72, x -> parse(Float64, x))
+const TRAIN_RATIO = option("--train-ratio", 0.8, x -> parse(Float64, x))
+const EPOCHS = option("--epochs", QUICK ? 100 : 500, x -> parse(Int, x))
+const NORMALIZATION = Symbol(option("--normalization", "row_total", identity))
+
+NSAMP > 1 || error("--n must be at least 2")
+NSTEPS > 0 || error("--nsteps must be positive")
+0 < TRAIN_RATIO < 1 || error("--train-ratio must lie strictly between 0 and 1")
+NORMALIZATION in (:row_total, :per_edge) ||
+    error("--normalization must be row_total or per_edge")
 
 println("Loading digits...")
-imgs_all, y_all = load_digit_images()
-rng = Xoshiro(SEED)
-idx = shuffle(rng, 1:size(imgs_all, 1))[1:NSAMP]
-imgs = imgs_all[idx, :, :]
-y = y_all[idx]
-N = NSAMP
-println("Using N=$N digit-nodes (classes: $(sort(unique(y))))")
+X_all, y_all = load_digit_data()
+NSAMP <= size(X_all, 2) || error("--n=$NSAMP exceeds the $(size(X_all, 2))-sample dataset")
 
-# ----- spike encode: (N,8,8) pixels/16 -> drive matrix S (N, 2048)
-x = imgs ./ 16.0
-S = spikerate.rate(x, NSTEPS)                       # (32, N, 8, 8)
-S = permutedims(S, (2, 1, 3, 4))                    # (N, 32, 8, 8)
-S = Float64.(reshape(S, N, NSTEPS * 64))            # (N, 2048)
-const T = size(S, 2)
-println("Drive: $(size(S)) (each node gets a $(T)-length spike train)")
+# Subset selection and splitting are deterministic. Only training columns are
+# passed to fit_fhn_digit_classifier; the model cannot inspect the test set.
+selected = shuffle(Xoshiro(SEED), 1:size(X_all, 2))[1:NSAMP]
+X = X_all[:, selected]
+y = y_all[selected]
+train_idx, test_idx = BaselineUtils.stratified_split(
+    y, TRAIN_RATIO; rng=Xoshiro(SEED + 1))
+X_train, y_train = X[:, train_idx], y[train_idx]
+X_test, y_test = X[:, test_idx], y[test_idx]
 
-# ----- coupling: complete graph, diffusive, weights ~ sigma * Normal-pdf(U[-1,1])
-Wc = [pdf(Normal(), r) for r in (2 .* rand(rng, N, N) .- 1)]
-Wc = SIGMA .* (Wc .+ Wc') ./ 2
-Wc[diagind(Wc)] .= 0
-const rowsum = vec(sum(Wc, dims=2))
+println("FHN digit classifier: $(length(train_idx)) train / $(length(test_idx)) test, ",
+        "nsteps=$NSTEPS, sigma=$SIGMA, normalization=$NORMALIZATION, seed=$SEED")
+println("Fitting and caching the train-only reservoir...")
+fit_seconds = @elapsed model = fit_fhn_digit_classifier(
+    X_train, y_train; nsteps=NSTEPS, seed=SEED, sigma=SIGMA,
+    normalization=NORMALIZATION, epochs=EPOCHS)
 
-# ----- vectorized input drive g_i(t) by linear interpolation across columns
-@inline function drive!(out, t)
-    if t <= 1
-        @inbounds out .= @view S[:, 1]
-    else
-        i = min(floor(Int, t), T - 1); f = t - i
-        @inbounds out .= (1 - f) .* @view(S[:, i]) .+ f .* @view(S[:, i + 1])
-    end
-    return out
-end
+println("Predicting independent test queries from the cached reservoir...")
+query_seconds = @elapsed pred_test = predict_fhn_digits(model, X_test)
+pred_train = predict_training_digits(model)
+classes = sort(unique(y_train))
+report = BaselineUtils.classification_report(pred_test, y_test, classes)
+train_accuracy = BaselineUtils.accuracy(pred_train, y_train)
 
-# ----- FHN reservoir RHS (u = z[1:N], v = z[N+1:2N])
-function fhn_rhs!(dz, z, gbuf, t)
-    u = @view z[1:N]; v = @view z[N+1:2N]
-    du = @view dz[1:N]; dv = @view dz[N+1:2N]
-    g = drive!(gbuf, t)
-    coupling = Wc * u .- rowsum .* u                 # diffusive, dense matvec
-    @. du = g + u - u^3 / 3 - v + coupling
-    @. dv = (g * R0 + u - A) * EPS
-    return nothing
-end
-
-println("Solving FHN reservoir ($(2N) ODE states)...")
-z0 = rand(rng, 2N)
-gbuf = zeros(N)
-prob = ODEProblem(fhn_rhs!, z0, (0.0, Float64(T)), gbuf)
-t_solve = @elapsed sol = solve(prob, Tsit5(); saveat=1.0:1.0:T, save_idxs=1:N)
-println(@sprintf("  solve done in %.1f s, retcode=%s", t_solve, sol.retcode))
-
-U = Array(sol)                                       # (N, T) node u-trajectories
-Xfeat = permutedims(U)                               # (T, N): col j = sample j features (T-length trajectory)
-
-# ----- readout: logistic regression on the reservoir trajectories, 80/20 split
-classes = sort(unique(y))
-tr, te = stratified_split(y, 0.8; rng=Xoshiro(SEED))
-sc = standardize_fit(Xfeat[:, tr])
-Xtr = standardize_apply(Xfeat[:, tr], sc)
-Xte = standardize_apply(Xfeat[:, te], sc)
-Ytr = onehot(y[tr], classes)
-
-model = train_logreg(Xtr, Ytr; epochs=500, rng=Xoshiro(SEED))
-pred_tr = classes[predict_nn(model, Xtr)]
-pred_te = classes[predict_nn(model, Xte)]
-rep = classification_report(pred_te, y[te], classes)
-
-println("\n========== FHN reservoir digit classification ==========")
-println(@sprintf("Nodes/samples: %d   features (trajectory length): %d", N, T))
-println(@sprintf("Train accuracy: %.4f", accuracy(pred_tr, y[tr])))
-println(@sprintf("Test  accuracy: %.4f   (paper claims 0.88)", rep.accuracy))
-println(@sprintf("Test  macro-F1: %.4f", rep.macro_f1))
+println("\n========== Inductive FHN digit classification ==========")
+println(@sprintf("Training reservoir: %d nodes   feature length: %d",
+                 length(train_idx), NSTEPS * size(X, 1)))
+println(@sprintf("Train-only fit/cache time: %.1f s", fit_seconds))
+println(@sprintf("Independent query time: %.1f s total (%.3f s/sample)",
+                 query_seconds, query_seconds / length(test_idx)))
+println(@sprintf("Train accuracy: %.4f", train_accuracy))
+println(@sprintf("Test  accuracy: %.4f", report.accuracy))
+println(@sprintf("Test  macro-F1: %.4f", report.macro_f1))
+println(@sprintf(
+    "RESULT mode=inductive quick=%s seed=%d N=%d n_train=%d n_test=%d nsteps=%d sigma=%.6g normalization=%s test_acc=%.4f macro_f1=%.4f fit_s=%.1f query_s=%.1f",
+    string(QUICK), SEED, NSAMP, length(train_idx), length(test_idx), NSTEPS, SIGMA,
+    string(NORMALIZATION), report.accuracy, report.macro_f1,
+    fit_seconds, query_seconds))

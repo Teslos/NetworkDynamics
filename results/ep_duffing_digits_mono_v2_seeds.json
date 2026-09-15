@@ -1,0 +1,94 @@
+{
+  "hidden": 40,
+  "summary": {
+    "logreg_mean": 0.8345,
+    "val_mean": 0.8183333333333334,
+    "seconds_std": 33.35326174002154,
+    "test_final_std": 0.018148691412881515,
+    "test_std": 0.02907963204719069,
+    "test_final_mean": 0.8230000000000001,
+    "val_std": 0.046172983923983564,
+    "logreg_std": 0.008177713616898051,
+    "train_mean": 0.8804166666666667,
+    "selected_iter_mean": 328.0,
+    "train_std": 0.014252192813739226,
+    "selected_iter_std": 41.47288270665544,
+    "mlp_mean": 0.877,
+    "mlp_std": 0.004472135954999583,
+    "seconds_mean": 191.14939999580383,
+    "test_mean": 0.8160000000000001,
+    "seed_std": 1.5811388300841898,
+    "seed_mean": 3.0
+  },
+  "iterations": 400,
+  "per_seed": [
+    {
+      "test": 0.81,
+      "mlp": 0.875,
+      "val": 0.8666666666666667,
+      "train": 0.8666666666666667,
+      "selected_iter": 300,
+      "seed": 1,
+      "test_final": 0.82,
+      "logreg": 0.835,
+      "seconds": 236.56899976730347
+    },
+    {
+      "test": 0.79,
+      "mlp": 0.88,
+      "val": 0.7416666666666667,
+      "train": 0.8645833333333334,
+      "selected_iter": 320,
+      "seed": 2,
+      "test_final": 0.8,
+      "logreg": 0.8225,
+      "seconds": 207.06900000572205
+    },
+    {
+      "test": 0.85,
+      "mlp": 0.88,
+      "val": 0.825,
+      "train": 0.8833333333333333,
+      "selected_iter": 400,
+      "seed": 3,
+      "test_final": 0.85,
+      "logreg": 0.845,
+      "seconds": 194.83400011062622
+    },
+    {
+      "test": 0.7875,
+      "mlp": 0.87,
+      "val": 0.8333333333333334,
+      "train": 0.8958333333333334,
+      "selected_iter": 300,
+      "seed": 4,
+      "test_final": 0.8175,
+      "logreg": 0.8325,
+      "seconds": 160.33500003814697
+    },
+    {
+      "test": 0.8425,
+      "mlp": 0.88,
+      "val": 0.825,
+      "train": 0.8916666666666667,
+      "selected_iter": 320,
+      "seed": 5,
+      "test_final": 0.8275,
+      "logreg": 0.8375,
+      "seconds": 156.94000005722046
+    }
+  ],
+  "test_per_class": 40,
+  "symmetric_gradient": true,
+  "train_per_class": 60,
+  "beta": 0.1,
+  "validation_fraction": 0.2,
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "inputs": "4x4 pooled"
+}

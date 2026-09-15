@@ -1,0 +1,32 @@
+{
+  "early": {
+    "slowest_rate_mean": 0.40564608573913574,
+    "slowest_rate_median": 0.381225049495697,
+    "slowest_rate_p05": 0.09666989743709564,
+    "spearman_slowest_rate_vs_residual": -0.842066425409661,
+    "slowest_rate_of_converged_median": 0.5854752659797668,
+    "slowest_rate_of_unconverged_median": 0.29626819491386414,
+    "fraction_with_rate_times_T_below_10": 0.8472222222222222,
+    "time_budget": 16.0
+  },
+  "middle": {
+    "slowest_rate_mean": 0.48572301864624023,
+    "slowest_rate_median": 0.4625808596611023,
+    "slowest_rate_p05": 0.14498290419578552,
+    "spearman_slowest_rate_vs_residual": -0.5221822699249222,
+    "slowest_rate_of_converged_median": 0.5806202292442322,
+    "slowest_rate_of_unconverged_median": 0.32767850160598755,
+    "fraction_with_rate_times_T_below_10": 0.7083333333333334,
+    "time_budget": 16.0
+  },
+  "final": {
+    "slowest_rate_mean": 0.512192964553833,
+    "slowest_rate_median": 0.4807838797569275,
+    "slowest_rate_p05": 0.12233808636665344,
+    "spearman_slowest_rate_vs_residual": -0.4899844906210696,
+    "slowest_rate_of_converged_median": 0.5956724882125854,
+    "slowest_rate_of_unconverged_median": 0.39383119344711304,
+    "fraction_with_rate_times_T_below_10": 0.7055555555555556,
+    "time_budget": 16.0
+  }
+}

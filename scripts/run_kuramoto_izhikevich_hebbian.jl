@@ -125,15 +125,67 @@ tt    = solf.t
 Θ     = reduce(hcat, solf.u)
 dphi  = mod2pi.(Θ .- Θ[1:1, :] .+ pi) .- pi                    # phase diff to node 1, in (-pi, pi]
 
-figf = Figure(size=(860, 430))
-axf = Axis(figf[1, 1], xlabel="time",
-           ylabel="phase relative to node 1  (θᵢ − θ₁)",
-           title="Forcing-driven recognition of digit '1'  (ε=100, h=0.1, T_f=400)")
-for i in 2:size(Θ, 1)
-    lines!(axf, tt, dphi[i, :], color=onpix[i] ? (:crimson, 0.35) : (:steelblue, 0.13))
+# Plotting all 63 traces over the full 900-unit window buried the only event that
+# matters -- the transition at T_f. Instead: summarise each group by its median and
+# interquartile band, overlay a few representative traces for texture, and zoom the
+# axis onto the release so the relaxation to the stored attractor is legible.
+#
+# Plot cos(θᵢ − θ₁) rather than the wrapped phase difference. The stored patterns
+# are binary, so the on-stroke nodes sit at Δθ ≈ π -- exactly on the branch cut of
+# a (-π, π] wrap, which made them saw-tooth between +π and -π and rendered as a
+# solid band of vertical stripes. The cosine has no branch cut and is directly
+# interpretable: +1 in phase with node 1, -1 in antiphase.
+cosd = cos.(Θ .- Θ[1:1, :])
+res_idx = [i for i in 2:size(Θ, 1) if onpix[i]]
+non_idx = [i for i in 2:size(Θ, 1) if !onpix[i]]
+band_of(idx) = (vec(mapslices(x -> quantile(x, 0.25), cosd[idx, :], dims=1)),
+                vec(mapslices(median,                 cosd[idx, :], dims=1)),
+                vec(mapslices(x -> quantile(x, 0.75), cosd[idx, :], dims=1)))
+rq1, rmed, rq3 = band_of(res_idx)
+nq1, nmed, nq3 = band_of(non_idx)
+
+figf = Figure(size=(880, 640))
+Label(figf[0, 1:3], "Forcing-driven recognition of digit '1'  (ε=100, h=0.1, T_f=400)",
+      fontsize=17, font=:bold)
+
+# Snapshots of the network state at three moments, so the reader can see the
+# pattern the phases encode. Node 1 is a background pixel, so a node is on the
+# stroke exactly when cos(θᵢ − θ₁) < 0: the images below are the sign of the
+# quantity plotted underneath, and nothing more.
+snap_t   = (TF, 429.0, TEND)
+snap_lab = ("a) cue at t = T_f", "b) mid-transition, t = 429", "c) recovered, t = $(Int(TEND))")
+for (c, (ts, lab)) in enumerate(zip(snap_t, snap_lab))
+    idx = argmin(abs.(tt .- ts))
+    img = -sign.(cos.(Θ[:, idx] .- Θ[1, idx]))          # +1 = on-stroke (ink)
+    axs = Axis(figf[1, c], title=lab, aspect=DataAspect(), titlesize=13)
+    heatmap!(axs, asimg(img), colormap=:grays)
+    hidedecorations!(axs)
 end
+
+axf = Axis(figf[2, 1:3], xlabel="time",
+           ylabel="cos(θᵢ − θ₁)   (+1 in phase, −1 antiphase)")
+rowsize!(figf.layout, 1, Relative(0.34))
+# a few individual traces per group, faint, for texture
+for i in res_idx[1:max(1, cld(length(res_idx), 5)):end]
+    lines!(axf, tt, cosd[i, :], color=(:crimson, 0.18))
+end
+for i in non_idx[1:max(1, cld(length(non_idx), 5)):end]
+    lines!(axf, tt, cosd[i, :], color=(:steelblue, 0.12))
+end
+band!(axf, tt, rq1, rq3, color=(:crimson, 0.22))
+band!(axf, tt, nq1, nq3, color=(:steelblue, 0.18))
+lines!(axf, tt, rmed, color=:crimson,   linewidth=2.5, label="on-stroke (resonant), median")
+lines!(axf, tt, nmed, color=:steelblue, linewidth=2.5, label="off-stroke, median")
 vlines!(axf, [TF], color=:black, linestyle=:dash)
-text!(axf, TF + 8, 2.9; text="forcing off", align=(:left, :top))
+text!(axf, TF + 6, 0.95; text="forcing off", align=(:left, :top))
+# mark where each snapshot above was taken
+for (c, ts) in enumerate(snap_t)
+    ts > TF + 120 && continue                       # the last one is off the zoomed axis
+    vlines!(axf, [ts], color=(:black, 0.35), linestyle=:dot)
+    text!(axf, ts, -1.06; text="($(('a':'c')[c]))", align=(:center, :bottom), fontsize=12)
+end
+xlims!(axf, TF - 20, TF + 120)       # the release and the relaxation that follows it
+axislegend(axf, position=:rc, framevisible=false)
 save(joinpath(FIGDIR, "kuramoto_network_diff_phase.png"), figf)
 @printf("Forcing recognition: overlap(final,'1') = %.3f\n", overlap(solf.u[end], fp[2]))
 println("Figure saved to ", abspath(joinpath(FIGDIR, "kuramoto_network_diff_phase.png")))

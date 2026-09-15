@@ -14,13 +14,22 @@ identical (layered, double-well HIDDEN cells, basin-averaging, annealing).
 
 ## Results
 
-| model            | train | test  |
-|------------------|------:|------:|
-| Duffing (graded) | 0.268 | 0.270 |
-| logreg           | —     | 0.835 |
-| MLP              | —     | 0.880 |
+Corrected protocol, 5 seeds, validation-selected checkpoint (see below):
 
-Chance = 0.100. Bistable-readout Duffing (same net): 0.177. XY: 0.94.
+| model                    | train         | test          |
+|--------------------------|--------------:|--------------:|
+| Duffing (graded, val-sel)| 0.213 ± 0.048 | **0.215 ± 0.049** |
+| &nbsp;&nbsp;(final iterate)| —           | 0.101 ± 0.008 |
+| logreg                   | —             | 0.835 ± 0.008 |
+| MLP                      | —             | 0.877 ± 0.004 |
+
+Per-seed test: 0.263, 0.200, 0.270, 0.180, 0.163. The originally reported
+single-seed, test-selected value was 0.270 — which the corrected run reproduces
+as its *best* seed, confirming that the old number was the maximum over an
+evaluation sweep rather than a typical outcome. The final iterate sits at chance
+(0.101 ± 0.008): this configuration does not hold whatever it finds.
+
+Chance = 0.100. Bistable-readout Duffing (same net): 0.164 ± 0.035.
 CE stayed ~2 (bounced); test peaked 0.27 (iter 100) then declined.
 
 ## Conclusion — the readout was PART of the problem, not all of it
@@ -72,3 +81,17 @@ single-bit/memory tasks.
 Short, somewhat unstable training (200 iters, CE bouncing). A longer/tuned run
 might gain a little, but the stuck CE and the structural argument (multistable
 hidden features) indicate a real limit, not merely a budget one.
+
+## Evaluation protocol corrected (2026-09-13)
+
+The numbers first recorded here came from a single seed whose checkpoint was
+selected by repeatedly scoring the **test** set and keeping the maximum -- a
+selection-biased figure, and a single seed against the manuscript's statement
+that every accuracy is a mean over seeds. The script now follows
+`src/hybrid/readout_ablation.py` (shared helper `src/utils/eval_protocol.jl`):
+a stratified 20% validation split is carved out of the training partition and
+selects the checkpoint; the test partition is evaluated **once per seed** on
+checkpoints fixed in advance (the validation-selected one and the final
+iterate); 5 seeds resample the split, the initialisation and the batch
+order; and logreg/MLP are refit per seed on the same reduced training split.
+Per-seed records: `results/ep_duffing_digits_graded_seeds.json`.

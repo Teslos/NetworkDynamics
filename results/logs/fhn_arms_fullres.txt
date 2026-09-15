@@ -1,0 +1,36 @@
+started 2026-09-14T13:45:05+02:00 on thl06710, commit e54bae6
+arm=row_total RESULT mode=inductive quick=false seed=1 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9443 macro_f1=0.9439 fit_s=55.8 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=2 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9164 macro_f1=0.9160 fit_s=56.8 query_s=2.2
+arm=row_total RESULT mode=inductive quick=false seed=3 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9109 macro_f1=0.9095 fit_s=56.8 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=4 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9304 macro_f1=0.9293 fit_s=56.7 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=5 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9136 macro_f1=0.9132 fit_s=56.5 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=6 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9081 macro_f1=0.9093 fit_s=57.4 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=7 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9499 macro_f1=0.9497 fit_s=57.9 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=8 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9304 macro_f1=0.9298 fit_s=56.2 query_s=2.1
+arm=row_total RESULT mode=inductive quick=false seed=9 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9192 macro_f1=0.9185 fit_s=56.4 query_s=2.2
+arm=row_total RESULT mode=inductive quick=false seed=10 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=row_total test_acc=0.9499 macro_f1=0.9494 fit_s=57.9 query_s=2.1
+arm=per_edge RESULT mode=inductive quick=false seed=1 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9304 macro_f1=0.9301 fit_s=351.7 query_s=25.5
+arm=per_edge RESULT mode=inductive quick=false seed=2 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9248 macro_f1=0.9249 fit_s=350.1 query_s=25.1
+arm=per_edge RESULT mode=inductive quick=false seed=3 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9276 macro_f1=0.9270 fit_s=352.4 query_s=24.8
+arm=per_edge RESULT mode=inductive quick=false seed=4 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9109 macro_f1=0.9101 fit_s=348.1 query_s=25.0
+arm=per_edge RESULT mode=inductive quick=false seed=5 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9359 macro_f1=0.9355 fit_s=348.1 query_s=26.4
+arm=per_edge RESULT mode=inductive quick=false seed=6 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9443 macro_f1=0.9443 fit_s=354.6 query_s=24.8
+arm=per_edge RESULT mode=inductive quick=false seed=7 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9471 macro_f1=0.9472 fit_s=344.3 query_s=25.1
+arm=per_edge RESULT mode=inductive quick=false seed=8 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9499 macro_f1=0.9498 fit_s=344.4 query_s=24.7
+arm=per_edge RESULT mode=inductive quick=false seed=9 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9276 macro_f1=0.9273 fit_s=352.2 query_s=25.0
+arm=per_edge RESULT mode=inductive quick=false seed=10 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0.72 normalization=per_edge test_acc=0.9526 macro_f1=0.9525 fit_s=340.7 query_s=25.1
+arm=sigma0 RESULT mode=inductive quick=false seed=1 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8496 macro_f1=0.8488 fit_s=57.3 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=2 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8134 macro_f1=0.8141 fit_s=58.9 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=3 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8496 macro_f1=0.8480 fit_s=58.7 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=4 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8078 macro_f1=0.8080 fit_s=59.3 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=5 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8412 macro_f1=0.8415 fit_s=57.4 query_s=1.7
+arm=sigma0 RESULT mode=inductive quick=false seed=6 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8162 macro_f1=0.8170 fit_s=58.0 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=7 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8412 macro_f1=0.8408 fit_s=58.6 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=8 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8301 macro_f1=0.8276 fit_s=57.8 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=9 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8496 macro_f1=0.8501 fit_s=57.5 query_s=1.8
+arm=sigma0 RESULT mode=inductive quick=false seed=10 N=1797 n_train=1438 n_test=359 nsteps=32 sigma=0 normalization=row_total test_acc=0.8691 macro_f1=0.8683 fit_s=57.9 query_s=1.8
+=== COMPLETE 2026-09-14T15:11:44+02:00 ===
+--- summary ---
+row_total  0.9273 +/- 0.0161 (n=10)
+per_edge   0.9351 +/- 0.0133 (n=10)
+sigma0     0.8368 +/- 0.0195 (n=10)

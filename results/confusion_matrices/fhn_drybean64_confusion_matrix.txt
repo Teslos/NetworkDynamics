@@ -1,0 +1,10 @@
+# FHN reservoir 64 nodes / 16 driven, Dry-Bean, seed=1234 n=13611
+# rows = true class, cols = predicted class
+# classes: BARBUNYA,BOMBAY,CALI,DERMASON,HOROZ,SEKER,SIRA
+104	6	12	0	3	0	7
+1	47	4	0	0	0	0
+9	22	122	0	10	0	0
+0	0	0	324	1	4	26
+3	0	2	2	182	0	4
+0	0	0	1	0	198	4
+1	0	0	20	5	2	236
