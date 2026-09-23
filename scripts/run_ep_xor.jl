@@ -8,6 +8,7 @@ include(joinpath(@__DIR__, "..", "notebooks", "EP-XY-Network-Claude.jl"))
 
 using Random
 using CairoMakie
+using LaTeXStrings
 
 const FIGDIR = joinpath(@__DIR__, "..", "results", "figures")
 isdir(FIGDIR) || mkpath(FIGDIR)
@@ -21,9 +22,14 @@ input_labels = ["(-1, -1)", "(-1, +1)", "(+1, -1)", "(+1, +1)"]
 
 # ---------------------------------------------------------------- cost history
 fig = Figure(size=(700, 450))
-ax = Axis(fig[1, 1], xlabel="Epoch", ylabel="Cost  ⟨1 − cos(φ_out − target)⟩ / 2",
-          title="Equilibrium Propagation training on XOR", yscale=log10)
-lines!(ax, 1:length(cost_history), max.(cost_history, 1e-12), color=:black, linewidth=1)
+# The y label is a LaTeX string: as a plain string the subscript rendered
+# literally as "phi_out" rather than as a subscript, and the target phase was
+# spelled out in words instead of matching the notation used in the text.
+ax = Axis(fig[1, 1], xlabel = "Epoch",
+          ylabel = L"\mathrm{Cost}\quad \langle 1 - \cos(\phi_{\mathrm{out}} - \phi^{\tau}) \rangle\, /\, 2",
+          title = "Equilibrium Propagation training on XOR", yscale = log10)
+lines!(ax, 1:length(cost_history), max.(cost_history, 1e-12),
+       color = :steelblue, linewidth = 1.6)
 save(joinpath(FIGDIR, "ep_xor_cost_history.png"), fig)
 
 # ------------------------------------------- free relaxation per input pattern

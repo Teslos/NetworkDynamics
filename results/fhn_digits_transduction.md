@@ -1,0 +1,172 @@
+# The FHN digit classifier is transductive — and does not need to be
+
+Scripts: `scripts/run_fhn_digits.jl` (now with `--mode`), ablations in the session
+scratchpad. Runs: 2026-09-13.
+
+> **Superseded implementation note (2026-09-14).** This file records the
+> historical masked joint-solve experiment on branch `fhn-digits-seed-sweep`.
+> The claim below that masking was *exactly* equivalent to independent query
+> insertion overlooked adaptive-solver cross-talk: test states still influenced
+> the shared solver's accepted step sequence, and at production tolerances this
+> measurably changed training trajectories. Branch
+> `fhn-digit-inductive-redesign` instead solves and caches the training
+> population once, then solves every query independently. See
+> `results/fhn_digit_inductive_redesign.md` for the design and comparison plan.
+
+## The problem
+
+`run_fhn_digits.jl` — and the original it reproduces,
+`src/classification/FitzHug-Nagumo-MNIST-Ridge.jl:107`, which builds
+`create_complete_graph(1797)` — assigns **one sample per node** and couples all
+of them in a single ODE solve, applying the train/test split only afterwards.
+Consequences:
+
+* No labels leak: labels enter only at the ridge/logistic readout, on train
+  indices.
+* But every sample's features depend on every other sample's drive, test samples
+  included, so the representation is a function of the whole batch.
+* And there is no map from a single new sample to features: classifying one digit
+  requires re-simulating a network containing it. That is a transductive system,
+  not a deployable classifier, and it was being compared against inductive
+  baselines (logreg, MLP, ESN) without qualification.
+
+## What the coupling is actually doing (N=300, 3 seeds)
+
+| variant | test accuracy | inductive? |
+|---|---:|---|
+| transductive (as shipped, random ICs) | 0.894 ± 0.041 | no |
+| transductive, identical ICs | 0.855 ± 0.008 | no |
+| **fixed reservoir (directed)** | **0.849 ± 0.002** | **yes** |
+| uncoupled (σ=0), identical ICs | 0.497 ± 0.076 | yes |
+| uncoupled (σ=0), random ICs | 0.498 ± 0.057 | yes |
+| train/test networks solved separately | 0.424 ± 0.092 | yes |
+| raw-pixel logistic regression, same split | ≈0.933 | yes |
+
+These variants were computed inside one process from a single spike encoding per
+seed, so they are paired on the encoding; they were, however, run before the
+readout initialisation was seeded, so each variant drew a different readout init.
+The readout is a convex full-batch fit and the effects below are 30-40 points, so
+this does not threaten the conclusions, but the comparison was not as controlled
+as it should have been.
+
+Two hypotheses were tested and one survived:
+
+* **Initial conditions (rejected).** Every node starts at a random `z0`; the
+  conjecture was that strong all-to-all coupling merely washes this out. Fixing
+  the ICs does nothing for the uncoupled network (0.497 vs 0.498), so the
+  coupling is not just cancelling a self-inflicted nuisance.
+* **Common frame (supported).** Train and test features are only commensurable
+  when measured against the same mean field and the same coupling draw. Solving
+  the halves separately puts them in different coordinate systems and scores
+  *worse* (0.424) than having no network at all (0.498).
+
+So on this implementation the coupling appeared to carry almost all of the
+accuracy — 0.85 coupled against 0.50 uncoupled. **That reading was wrong, and is
+retracted below**: see "What the uncoupled control actually shows". What does
+hold is that the network does **not** need the test set inside it.
+
+## The repair: the training batch is the reservoir
+
+The historical `--mode fixed_reservoir` zeroes the columns of the coupling matrix belonging to
+test nodes, so **no node receives from a test node**. Each test node then evolves
+under its own drive plus the training nodes only. This removes the dynamical
+path from test nodes into training nodes, but it does not make a shared adaptive
+solve numerically independent: all states still participate in the solver's
+error norm. The redesigned branch implements the intended equivalence literally
+with a separate cached training solve and independent single-query solves.
+
+The redesigned version is also cheap to deploy. The train trajectories are
+computed once and cached; a new sample then costs a single-node solve driven by
+its own input plus the cached field, not a 1797-node solve.
+
+## Full resolution (N=1797, 3 seeds per mode)
+
+| seed label | transductive | fixed reservoir |
+|---|---:|---:|
+| 1 | 0.9415 | 0.9387 |
+| 2 | 0.9331 | 0.9359 |
+| 3 | 0.9248 | 0.9164 |
+| **mean** | **0.9331 ± 0.0084** | **0.9303 ± 0.0121** |
+
+The inductive variant matches the transductive one within run-to-run noise. At
+full resolution the transduction buys nothing measurable; the earlier N=300 gap
+(0.855 vs 0.849) likewise sat inside the noise. Solve time ≈ 39–83 min per run.
+
+**Correction (2026-09-14).** This table was first published as a *paired*
+comparison with a per-seed difference of −0.28 ± 0.56 pp. It is not paired. The
+spike encoder drew its Bernoulli spikes from the global RNG (see
+`src/utils/spikerate.jl`), so each of these six runs — separate process
+invocations — encoded its data differently, and rows sharing a seed label do not
+share an encoding. The means above remain valid estimates of each mode, but the
+per-seed differences are not pairs and the ±0.56 pp precision was unearned. The
+encoder now takes an explicit `rng`, and a second unseeded source has been fixed
+alongside it: Flux's `Dense` initialised the readout from the global RNG even
+when `train_logreg` was handed a seed, so `rng=` was a no-op for every model in
+`src/baselines/baseline_models.jl`. Two runs of the same command now agree
+exactly. These numbers should be regenerated under the seeded pipeline before
+being used anywhere load-bearing.
+
+Caveat on the comparison: `fixed_reservoir` also changes the *training* nodes
+slightly, because their row sums no longer include the test columns (~20% fewer
+neighbours). It is therefore a different model that is inductive, not a pure
+"delete the leakage" ablation. Given that the two agree to within 0.3 pp, the
+distinction does not matter here, but a σ rescaled to match row sums would be the
+clean control if it ever did.
+
+## Recommendation
+
+1. Regenerate the FHN digit result with the true separate-solve implementation
+   before using it in the paper. Do not treat the historical `fixed_reservoir`
+   numbers as a fully inductive result.
+2. Describe what the reservoir *is*: the training population, with a query
+   coupled into it — not a reservoir in the usual sense of fixed internal state
+   driven by one sample at a time.
+3. Keep the claim that the coupling does the computational work; it is now
+   supported by a direct ablation (0.85 coupled vs ≈0.50 uncoupled) rather than
+   assumed. Note that this ablation exists only at **N=300**. Because the
+   coupling is not degree-normalised, the aggregate drive on a node grows with
+   N, so N=300 and N=1797 are different dynamical regimes at the same σ=0.72;
+   the uncoupled arm has not been measured at full resolution, and the claim
+   should not be quoted as if it had.
+4. Note for the physical-realizability argument: the directed coupling breaks the
+   symmetry of `W`. A hardware implementation needs either directed coupling or a
+   frozen reference population.
+
+## What the uncoupled control actually shows (2026-09-14, supersedes the above)
+
+Rerun at **full resolution** on the redesigned classifier
+(`fhn-digit-inductive-redesign`, ten seeds, seeded pipeline, fit/predict
+boundary, `row_total` normalisation):
+
+| arm | test accuracy | paired vs row_total |
+|---|---:|---|
+| redesigned, `row_total` (recommended) | **0.9273 ± 0.0161** | — |
+| redesigned, `per_edge` (historical scaling) | 0.9351 ± 0.0133 | −0.78 ± 1.70 pp, wins 3/10 |
+| **uncoupled, σ = 0** | **0.8368 ± 0.0195** | **+9.05 ± 1.93 pp, wins 10/10** |
+| historical masked joint solve | 0.9306 ± 0.0142 | — |
+
+**The uncoupled control is 0.837, not ≈0.50.** The earlier figure was measured on
+the pre-redesign implementation at N=300 and does not survive. The coupling is
+worth **9.05 ± 1.93 percentage points**, consistently (10/10 seeds) but far from
+the 43-point collapse reported above.
+
+The discrepancy has the same cause as the "common frame" finding higher up the
+page, drawn to the wrong conclusion. In the old implementation, setting σ = 0
+also destroyed the frame in which train and test features were commensurable, so
+0.50 measured *no coupling plus incommensurate features*. The redesign fixes the
+frame by construction — every sample passes through the same fitted
+virtual-query map — so σ = 0 now isolates the coupling alone. The old number
+measured the frame problem, not the physics.
+
+Two further points from the same run:
+
+* `per_edge` is nominally **higher** than `row_total` (by 0.8 ± 1.7 pp, not
+  clearing the seed scatter). The normalisation buys portability of σ across
+  reservoir sizes, not accuracy. It is also ~6x cheaper to fit (57 s vs 349 s),
+  since the unnormalised coupling is much stiffer at N = 1797.
+* Every arm agrees with the manuscript's original transductive 0.926 ± 0.013 to
+  within the seed scatter. The full chain of corrections — leakage removed,
+  coupling normalised, two RNG sources seeded, the adaptive-solver channel
+  eliminated by the cached fit — costs nothing in accuracy.
+
+Per-seed records: `results/logs/fhn_arms_fullres.txt`.

@@ -1,0 +1,94 @@
+{
+  "hidden": 40,
+  "summary": {
+    "logreg_mean": 0.8345,
+    "val_mean": 0.1766666666666667,
+    "seconds_std": 8.451166795661223,
+    "test_final_std": 0.030031233740890496,
+    "test_std": 0.035425979167836706,
+    "test_final_mean": 0.1665,
+    "val_std": 0.016029486718059458,
+    "logreg_std": 0.008177713616898051,
+    "train_mean": 0.16458333333333333,
+    "selected_iter_mean": 150.2,
+    "train_std": 0.05264282820205531,
+    "selected_iter_std": 86.16960020796198,
+    "mlp_mean": 0.877,
+    "mlp_std": 0.004472135954999583,
+    "seconds_mean": 98.81779999732971,
+    "test_mean": 0.164,
+    "seed_std": 1.5811388300841898,
+    "seed_mean": 3.0
+  },
+  "iterations": 200,
+  "per_seed": [
+    {
+      "test": 0.1825,
+      "mlp": 0.875,
+      "val": 0.19166666666666668,
+      "train": 0.18958333333333333,
+      "selected_iter": 150,
+      "seed": 1,
+      "test_final": 0.1825,
+      "logreg": 0.835,
+      "seconds": 105.05999994277954
+    },
+    {
+      "test": 0.165,
+      "mlp": 0.88,
+      "val": 0.175,
+      "train": 0.20625,
+      "selected_iter": 200,
+      "seed": 2,
+      "test_final": 0.165,
+      "logreg": 0.8225,
+      "seconds": 108.43700003623962
+    },
+    {
+      "test": 0.1825,
+      "mlp": 0.88,
+      "val": 0.18333333333333332,
+      "train": 0.175,
+      "selected_iter": 200,
+      "seed": 3,
+      "test_final": 0.1825,
+      "logreg": 0.845,
+      "seconds": 91.00200009346008
+    },
+    {
+      "test": 0.1025,
+      "mlp": 0.87,
+      "val": 0.15,
+      "train": 0.07291666666666667,
+      "selected_iter": 1,
+      "seed": 4,
+      "test_final": 0.115,
+      "logreg": 0.8325,
+      "seconds": 100.30599999427795
+    },
+    {
+      "test": 0.1875,
+      "mlp": 0.88,
+      "val": 0.18333333333333332,
+      "train": 0.17916666666666667,
+      "selected_iter": 200,
+      "seed": 5,
+      "test_final": 0.1875,
+      "logreg": 0.8375,
+      "seconds": 89.28399991989136
+    }
+  ],
+  "test_per_class": 40,
+  "readout": "bistable double-well outputs",
+  "train_per_class": 60,
+  "beta": 0.1,
+  "validation_fraction": 0.2,
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "inputs": "4x4 pooled"
+}

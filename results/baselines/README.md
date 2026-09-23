@@ -65,6 +65,13 @@ julia --project=. scripts/run_ude_ablation.jl               # B8
 Add `--quick` to any for a fast smoke run. Figures are written to
 `results/figures/` (gitignored); tables to this directory.
 
+On branch `fhn-digit-inductive-redesign`, the digit command uses a true
+train-only fit/cache followed by independent query solves. Use
+`--normalization per_edge` to isolate that repair from the new, recommended
+size-independent `row_total` coupling. The comparison protocol is documented in
+`results/fhn_digit_inductive_redesign.md`; no redesigned full-resolution number
+is claimed until the multi-seed workstation runs finish.
+
 ---
 
 ## Findings by experiment
@@ -76,12 +83,21 @@ Add `--quick` to any for a fast smoke run. Figures are written to
 | B3 | §1.3 topology claim | paired Wilcoxon protocol | demonstrated (MLP vs logreg, p=0.006) |
 | B4 | §6 metrics | macro/weighted F1, per-class | reported for every model |
 | B5 | §6 cross-validation | stratified k-fold (dry bean) | done |
-| B6 | §2/§6 Lorenz | valid time + NRMSE | 7.0 ± 1.1 Lyapunov times, then diverges |
+| B6 | §2/§6 Lorenz | valid time + NRMSE | 6.8 ± 0.8 Lyapunov times, then diverges |
 | B7 | §1.4 resonance | silhouette / Fisher / linear probe | reservoir **less** separable than raw pixels |
 | B8 | §1.2 framing | learned-coupling vs fixed reservoir | no significant difference (p≈0.45) |
 | B9 | §6 edge of chaos | accuracy + Lyapunov/ESP vs coupling | FHN contracting, **not** at edge of chaos |
 | B10 | (Beattie) criticality | avalanche statistics vs coupling | **is** avalanche-critical (branching→1) |
 | B11 | capstone | criticality **and** accuracy, same network | weak peak at criticality; shrinkage claim not reproduced |
+
+> **Reproducibility note (2026-09-14).** The numbers in this directory were
+> produced before two unseeded random sources were fixed: the spike encoder drew
+> from the global RNG, and Flux's `Dense` initialised every readout from the
+> global RNG even when `train_logreg`/`train_linear_svm`/`train_mlp` were handed
+> an `rng` (the argument was a no-op). A given seed therefore did not reproduce a
+> given run. The mean +/- std over seeds remains a valid estimate, since the
+> extra variation is just another source of spread, but individual runs are not
+> reproducible from these seeds. Both sources are now seeded.
 
 ### Baselines & statistics (B1–B6) — `baseline_results.md`
 
@@ -97,8 +113,9 @@ Digits (== sklearn `load_digits`, 1797×64, 10 classes, 80/20 split, 10 seeds):
 | FHN reservoir (our reproduction, N=1797) | 0.936 (1 seed) | 0.936 |
 
 Dry bean (13611×16, 7 classes, repeated stratified 5-fold): logreg 0.923, SVM
-0.924, MLP 0.933, tanh-ESN 0.930 (all ± ~0.004). Lorenz tanh-ESN: valid
-7.0 ± 1.1 Lyapunov times, NRMSE 1.31. A LaTeX summary table for digits is in
+0.924, MLP 0.933, tanh-ESN 0.930 (all ± ~0.004). Lorenz tanh-ESN (Nr = 500): valid
+6.8 ± 0.8 Lyapunov times, NRMSE 1.31 (regenerated 2026-09-13 after the
+autonomous-rollout off-by-one fix; was 7.0 ± 1.1). A LaTeX summary table for digits is in
 `digits_results_table.tex`.
 
 > The continuous-time LPCTESN reservoir baseline that previously lived here has

@@ -23,6 +23,17 @@ using SciMLBase: get_du
 
 EP_XY_SKIP_RUN = true
 include(joinpath(@__DIR__, "..", "notebooks", "EP-XY-Network-Claude.jl"))
+include(joinpath(@__DIR__, "..", "src", "utils", "eval_protocol.jl"))
+using .EvalProtocol
+
+# Evaluation protocol (revised 2026-09-12): this script already selected its
+# checkpoint on the TRAINING cost rather than on the test set, so the test
+# partition was never used for selection. What it lacked was seed averaging: the
+# reported 0.767 came from one seed. It now runs SEEDS (resampling the split, the
+# initialisation and the batch order), carves a stratified 20% validation split
+# out of the training partition so a validation-selected checkpoint can be
+# reported alongside the training-cost one, and evaluates the test partition once
+# per seed on checkpoints fixed in advance. See src/utils/eval_protocol.jl.
 
 # Relax steady-state tolerance to 1e-3 (Stage 0 operating point).
 const STEADY_TOL_S2 = 1e-3
@@ -31,7 +42,10 @@ steady_state_callback() = DiscreteCallback(
     terminate!; save_positions=(false, false))
 
 # ---------------------------------------------------------------- config
-const SEED       = 1
+const SEEDS      = 1:parse(Int, get(ENV, "XY_S2_SEEDS", "5"))
+const VAL_FRAC   = 0.2
+const SYMMETRIC  = false
+const EVAL_EVERY = 10
 const CLASSES    = collect(0:9)
 const N_TRAIN_PC = 50
 const N_TEST_PC  = 30
@@ -40,13 +54,13 @@ const N_EV       = 600            # T = 60
 const DT         = 0.1
 const BETA       = 0.01
 const STUDY_RATE = 0.05
-const N_EPOCH    = 80
+const N_EPOCH    = parse(Int, get(ENV, "XY_S2_EPOCH", "80"))
 const BATCH      = 50
 const W_SCALE    = 0.1
 const L2         = 1e-4
+const OUTFILE    = joinpath(@__DIR__, "..", "results", "xy_digits_stage2_seeds.json")
 const ON, OFF    = π/2, -π/2
 
-Random.seed!(SEED)
 println("threads = ", Threads.nthreads(), ", tol = ", STEADY_TOL_S2,
         ", N_ev = ", N_EV, " (T=", N_EV*DT, "), one-sided grad, L2 = ", L2, "\n")
 
@@ -78,8 +92,8 @@ function logreg_accuracy(Xtr, ytr, Xte, yte, n_class; iters=800, lr=0.5, l2=1e-3
 end
 
 # 1-hidden-layer tanh MLP, full-batch GD.
-function mlp_accuracy(Xtr, ytr, Xte, yte, n_class; h=64, iters=3000, lr=0.2, l2=1e-4)
-    rng = MersenneTwister(SEED)
+function mlp_accuracy(Xtr, ytr, Xte, yte, n_class, seed; h=64, iters=3000, lr=0.2, l2=1e-4)
+    rng = MersenneTwister(seed)
     n, d = size(Xtr)
     W1 = 0.1*randn(rng, d, h); b1 = zeros(h); W2 = 0.1*randn(rng, h, n_class); b2 = zeros(n_class)
     Y = zeros(n, n_class); for i in 1:n; Y[i, ytr[i]] = 1.0; end
@@ -97,11 +111,13 @@ function mlp_accuracy(Xtr, ytr, Xte, yte, n_class; h=64, iters=3000, lr=0.2, l2=
 end
 
 # ---------------------------------------------------------------- XY training (L2, one-sided)
-function train_xy_l2(W0, bias0, Xtr, Ttr, input_index, variable_index, output_index; rng)
+function train_xy_l2(W0, bias0, Xtr, Ttr, Xva, yva, input_index, variable_index, output_index;
+                     rng, accuracy, init_va)
     N = size(W0, 1); N_data = size(Xtr, 1)
     W = copy(W0); bias = copy(bias0)
     sW = zeros(size(W)); rW = zeros(size(W)); sB = zeros(size(bias)); rB = zeros(size(bias))
     best_cost = Inf; bestW = copy(W); bestB = copy(bias); ch = zeros(N_EPOCH)
+    best_va = -1.0; vaW = copy(W); vaB = copy(bias); best_va_epoch = 0
     for epoch in 1:N_EPOCH
         perm = shuffle(rng, 1:N_data)
         ec = 0.0
@@ -112,7 +128,7 @@ function train_xy_l2(W0, bias0, Xtr, Ttr, input_index, variable_index, output_in
             phase0[:, variable_index] .= 0.1 * randn(rng, length(bidx), length(variable_index))
             gW, gB, cost, _ = EP_param_gradient(W, bias, phase0, Ttr[bidx, :], BETA,
                                                 N_EV, DT, input_index, variable_index,
-                                                output_index; symmetric=false)
+                                                output_index; symmetric=SYMMETRIC)
             gW = gW .+ L2 .* W                          # L2 weight decay
             W, sW, rW = Adam_update(W, gW, STUDY_RATE, epoch, sW, rW)
             bias, sB, rB = Adam_update(bias, gB, STUDY_RATE, epoch, sB, rB)
@@ -120,60 +136,93 @@ function train_xy_l2(W0, bias0, Xtr, Ttr, input_index, variable_index, output_in
         end
         ch[epoch] = ec / N_data
         if ch[epoch] < best_cost; best_cost = ch[epoch]; bestW = copy(W); bestB = copy(bias); end
-        if epoch == 1 || epoch % 10 == 0; @printf("  epoch %d: cost %.4f\n", epoch, ch[epoch]); end
+        if epoch == 1 || epoch % EVAL_EVERY == 0
+            va = accuracy(W, bias, Xva, yva, init_va)
+            if va > best_va; best_va = va; vaW = copy(W); vaB = copy(bias); best_va_epoch = epoch; end
+            @printf("  epoch %d: cost %.4f  val %.3f (best %.3f @ %d)\n",
+                    epoch, ch[epoch], va, best_va, best_va_epoch)
+        end
     end
-    return bestW, bestB, ch
+    return (cost_W=bestW, cost_b=bestB, val_W=vaW, val_b=vaB,
+            best_va=best_va, best_va_epoch=best_va_epoch, history=ch)
 end
 
 # ---------------------------------------------------------------- run
-rng = MersenneTwister(SEED)
-classcol = Dict(c => j for (j, c) in enumerate(CLASSES))
-tr = Int[]; te = Int[]
-for c in CLASSES
-    ci = shuffle(rng, findall(==(c), Y_ALL))
-    append!(tr, ci[1:N_TRAIN_PC]); append!(te, ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC])
-end
-shuffle!(rng, tr); shuffle!(rng, te)
-
-Xtr_p = pool_all(X_ALL[tr, :]) ./ 16.0;  Xte_p = pool_all(X_ALL[te, :]) ./ 16.0   # baselines
-ytr = [classcol[c] for c in Y_ALL[tr]];  yte = [classcol[c] for c in Y_ALL[te]]
-Xtr = (Xtr_p .- 0.5) .* π;  Xte = (Xte_p .- 0.5) .* π                              # XY phase
-
 const N_CLS = length(CLASSES)
 const N = 16 + N_HIDDEN + N_CLS
-input_index  = collect(1:16)
-output_index = collect(N-N_CLS+1:N)
-variable_index = setdiff(1:N, input_index)
-Ttr = [ytr[i] == j ? ON : OFF for i in eachindex(ytr), j in 1:N_CLS]
+const INPUT_INDEX = collect(1:16)
+const OUTPUT_INDEX = collect(N-N_CLS+1:N)
+const VARIABLE_INDEX = setdiff(1:N, INPUT_INDEX)
+const CC = Dict(c => j for (j, c) in enumerate(CLASSES))
 
-println("Full 10-class: N=$N (16 inputs, $N_HIDDEN hidden, $N_CLS outputs), ",
-        "train=$(length(ytr)), test=$(length(yte))\n")
+function make_split(seed)
+    tr, va, te = class_split(Y_ALL, CLASSES, N_TRAIN_PC, N_TEST_PC; val_frac=VAL_FRAC, seed=seed)
+    feat(idx) = pool_all(X_ALL[idx, :]) ./ 16.0
+    lab(idx) = [CC[c] for c in Y_ALL[idx]]
+    ftr, fva, fte = feat(tr), feat(va), feat(te)
+    phase(P) = (P .- 0.5) .* pi
+    return (Xtr_p=ftr, Xva_p=fva, Xte_p=fte,
+            Xtr=phase(ftr), Xva=phase(fva), Xte=phase(fte),
+            ytr=lab(tr), yva=lab(va), yte=lab(te))
+end
 
-W0 = W_SCALE * randn(rng, N, N); W0 = (W0 + W0') / 2; W0[diagind(W0)] .= 0
-bias0 = zeros(2, N); bias0[1, :] .= 0.1*rand(rng, N); bias0[2, :] .= 2π .* (rand(rng, N) .- 0.5)
-
-function xy_accuracy(W, bias, X, y)
+# `var_init` is a frozen draw, so the score depends only on (W, bias).
+function xy_accuracy(W, bias, X, y, var_init)
     n = size(X, 1)
-    phase0 = zeros(n, N); phase0[:, input_index] .= X
-    phase0[:, variable_index] .= 0.1 * randn(rng, n, length(variable_index))
-    eq = run_network_batch(phase0, N_EV*DT, W, bias, fill(OFF, n, N_CLS), 0.0, input_index, output_index)
-    out = eq[:, output_index]
+    phase0 = zeros(n, N); phase0[:, INPUT_INDEX] .= X
+    phase0[:, VARIABLE_INDEX] .= var_init
+    eq = run_network_batch(phase0, N_EV*DT, W, bias, fill(OFF, n, N_CLS), 0.0,
+                           INPUT_INDEX, OUTPUT_INDEX)
+    out = eq[:, OUTPUT_INDEX]
     return mean([argmax(@view out[i, :]) for i in 1:n] .== y)
 end
 
-println("Training XY net (one-sided EP, L2)...")
-t0 = time()
-Wf, biasf, ch = train_xy_l2(W0, bias0, Xtr, Ttr, input_index, variable_index, output_index; rng=rng)
-secs = time() - t0
+function run_seed(seed)
+    s = make_split(seed)
+    Ttr = [s.ytr[i] == j ? ON : OFF for i in eachindex(s.ytr), j in 1:N_CLS]
+    rng = MersenneTwister(seed)
+    W0 = W_SCALE * randn(rng, N, N); W0 = (W0 + W0') / 2; W0[diagind(W0)] .= 0
+    bias0 = zeros(2, N); bias0[1, :] .= 0.1*rand(rng, N); bias0[2, :] .= 2pi .* (rand(rng, N) .- 0.5)
+    nvar = length(VARIABLE_INDEX)
+    init_tr = frozen_init(7000+seed, length(s.ytr), nvar; scale=0.1)
+    init_va = frozen_init(8000+seed, length(s.yva), nvar; scale=0.1)
+    init_te = frozen_init(9000+seed, length(s.yte), nvar; scale=0.1)
 
-xy_tr = xy_accuracy(Wf, biasf, Xtr, ytr); xy_te = xy_accuracy(Wf, biasf, Xte, yte)
-lr_tr = logreg_accuracy(Xtr_p, ytr, Xtr_p, ytr, N_CLS); lr_te = logreg_accuracy(Xtr_p, ytr, Xte_p, yte, N_CLS)
-ml_tr = mlp_accuracy(Xtr_p, ytr, Xtr_p, ytr, N_CLS);    ml_te = mlp_accuracy(Xtr_p, ytr, Xte_p, yte, N_CLS)
+    @printf("=== seed %d: N=%d (16 inputs, %d hidden, %d outputs), train=%d val=%d test=%d ===\n",
+            seed, N, N_HIDDEN, N_CLS, length(s.ytr), length(s.yva), length(s.yte))
+    t0 = time()
+    fit = train_xy_l2(W0, bias0, s.Xtr, Ttr, s.Xva, s.yva,
+                      INPUT_INDEX, VARIABLE_INDEX, OUTPUT_INDEX;
+                      rng=rng, accuracy=xy_accuracy, init_va=init_va)
+    secs = time() - t0
 
-@printf("\ntrained %d epochs in %.0fs  (cost %.3f -> %.3f)\n", N_EPOCH, secs, ch[1], ch[end])
-println("="^58)
-@printf("%-10s | %-10s %-10s   (chance %.3f, 4x4 inputs)\n", "model", "train acc", "test acc", 1/N_CLS)
-println("-"^58)
-@printf("%-10s | %-10.3f %-10.3f\n", "XY (EP)", xy_tr, xy_te)
-@printf("%-10s | %-10.3f %-10.3f\n", "logreg",  lr_tr, lr_te)
-@printf("%-10s | %-10.3f %-10.3f\n", "MLP",     ml_tr, ml_te)
+    # The test partition is evaluated here only, on checkpoints fixed in advance.
+    te_cost = xy_accuracy(fit.cost_W, fit.cost_b, s.Xte, s.yte, init_te)
+    te_val  = xy_accuracy(fit.val_W,  fit.val_b,  s.Xte, s.yte, init_te)
+    tr_acc  = xy_accuracy(fit.cost_W, fit.cost_b, s.Xtr, s.ytr, init_tr)
+    lr_te = logreg_accuracy(s.Xtr_p, s.ytr, s.Xte_p, s.yte, N_CLS)
+    ml_te = mlp_accuracy(s.Xtr_p, s.ytr, s.Xte_p, s.yte, N_CLS, seed)
+    @printf("  seed %d done in %.0fs: train %.3f | test %.3f (cost-selected) %.3f (val-selected) | logreg %.3f | MLP %.3f\n\n",
+            seed, secs, tr_acc, te_cost, te_val, lr_te, ml_te)
+    return (seed=seed, train=tr_acc, test=te_cost, test_val_selected=te_val,
+            val=fit.best_va, selected_epoch=fit.best_va_epoch,
+            cost_first=fit.history[1], cost_last=fit.history[end],
+            logreg=lr_te, mlp=ml_te, seconds=secs)
+end
+
+results = [run_seed(seed) for seed in SEEDS]
+xy = [r.test for r in results]; xyv = [r.test_val_selected for r in results]
+println("="^68)
+@printf("%d seeds, 4x4 inputs, chance %.3f. Test evaluated once per seed.\n", length(results), 1/N_CLS)
+println("-"^68)
+@printf("%-28s | %-16s %-16s\n", "model", "train acc", "test acc")
+@printf("%-28s | %-16s %-16s\n", "XY (EP, one-sided), cost-sel", msfmt([r.train for r in results]), msfmt(xy))
+@printf("%-28s | %-16s %-16s\n", "  val-selected checkpoint", "-", msfmt(xyv))
+@printf("%-28s | %-16s %-16s\n", "logreg", "-", msfmt([r.logreg for r in results]))
+@printf("%-28s | %-16s %-16s\n", "MLP", "-", msfmt([r.mlp for r in results]))
+println("-"^68)
+@printf("per-seed test: %s\n", join((@sprintf("%.3f", a) for a in xy), ", "))
+write_seed_record(OUTFILE, Dict("seeds"=>collect(SEEDS), "epochs"=>N_EPOCH, "hidden"=>N_HIDDEN,
+    "validation_fraction"=>VAL_FRAC, "train_per_class"=>N_TRAIN_PC, "test_per_class"=>N_TEST_PC,
+    "beta"=>BETA, "symmetric_gradient"=>SYMMETRIC, "inputs"=>"4x4 pooled"), results)
+println("\nwrote ", OUTFILE)

@@ -18,11 +18,20 @@ threaded batch relaxation, vs logreg/MLP on the same 4×4 features.
 
 ## Results
 
-| model            | train | test  |
-|------------------|------:|------:|
-| Duffing (layered)| 0.170 | 0.177 |
-| logreg           | —     | 0.835 |
-| MLP              | —     | 0.880 |
+Corrected protocol, 5 seeds, validation-selected checkpoint (see below):
+
+| model                      | train         | test          |
+|----------------------------|--------------:|--------------:|
+| Duffing (layered, val-sel) | 0.165 ± 0.053 | **0.164 ± 0.035** |
+| &nbsp;&nbsp;(final iterate)| —             | 0.167 ± 0.030 |
+| logreg                     | —             | 0.835 ± 0.008 |
+| MLP                        | —             | 0.877 ± 0.004 |
+
+Per-seed test: 0.182, 0.165, 0.182, 0.102, 0.188. The originally reported
+single-seed, test-selected value was 0.177, within the seed spread: at this level
+the selection bias has almost nothing to select from, which is itself consistent
+with the conclusion below. Selected checkpoint and final iterate agree, i.e. the
+network is stuck rather than unstable.
 
 Chance = 0.100. Cost: 18 → 3 (by iter 25) → **flat ~3** thereafter; test 0.10–0.18.
 
@@ -71,3 +80,14 @@ moves Duffing toward the phase-oscillator readout. Which is the honest endpoint:
 for multi-class classification, the smooth (XY/phase) readout is the right tool;
 the deep-double-well readout is a liability, exactly as the substrate analysis
 predicted.
+
+## Evaluation protocol corrected (2026-09-13)
+
+The number first recorded here came from a single seed whose checkpoint was
+selected by repeatedly scoring the **test** set and keeping the maximum. The
+script now carves a stratified 20% validation split out of the training partition
+to select the checkpoint, evaluates the test partition once per seed on
+checkpoints fixed in advance, and averages over 5 seeds that resample the split,
+the initialisation and the batch order (shared helper
+`src/utils/eval_protocol.jl`). Per-seed records:
+`results/ep_duffing_digits_layered_seeds.json`.

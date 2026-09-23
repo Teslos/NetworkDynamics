@@ -1,0 +1,143 @@
+{
+  "seeds": [
+    45
+  ],
+  "epochs": 50,
+  "validation_fraction": 0.2,
+  "per_seed": {
+    "45": {
+      "linear": {
+        "accuracy": 0.95,
+        "cross_entropy": 0.22797355122036403,
+        "errors": 18,
+        "samples": 360,
+        "seconds_per_sample": 2.0783006524046263e-06,
+        "selected_epoch": 37,
+        "validation_accuracy": 0.9163763066202091,
+        "stored_parameters": 3210,
+        "effective_parameters": 3210
+      },
+      "phase_uncoupled": {
+        "accuracy": 0.8972222222222223,
+        "cross_entropy": 0.3570429378085666,
+        "errors": 37,
+        "samples": 360,
+        "seconds_per_sample": 0.006238888700803121,
+        "selected_epoch": 46,
+        "validation_accuracy": 0.8954703832752613,
+        "stored_parameters": 6420,
+        "effective_parameters": 6420,
+        "analytic_check": {
+          "phase_error_median_rad": 7.152557373046875e-07,
+          "phase_error_p95_rad": 0.015683496370911598,
+          "phase_error_max_rad": 3.139779806137085,
+          "fraction_error_above_0p1rad": 0.019444444444444445,
+          "median_rate_all": 0.9956703186035156,
+          "median_rate_of_failures": 0.20836326479911804,
+          "median_rate_of_matches": 1.0079553127288818,
+          "prediction_agreement": 0.9861111111111112,
+          "undetermined_entries": 0,
+          "total_entries": 3600
+        }
+      },
+      "phase_coupled": {
+        "accuracy": 0.8972222222222223,
+        "cross_entropy": 0.3541732390721639,
+        "errors": 37,
+        "samples": 360,
+        "seconds_per_sample": 0.00619515221979883,
+        "selected_epoch": 40,
+        "validation_accuracy": 0.8989547038327527,
+        "stored_parameters": 6520,
+        "effective_parameters": 6465
+      },
+      "_pairs": {
+        "linear_vs_phase_uncoupled": {
+          "both_correct": 319,
+          "both_wrong": 14,
+          "linear_only": 23,
+          "phase_uncoupled_only": 4,
+          "disagreements": 29
+        },
+        "linear_vs_phase_coupled": {
+          "both_correct": 321,
+          "both_wrong": 16,
+          "linear_only": 21,
+          "phase_coupled_only": 2,
+          "disagreements": 27
+        },
+        "phase_uncoupled_vs_phase_coupled": {
+          "both_correct": 305,
+          "both_wrong": 19,
+          "phase_uncoupled_only": 18,
+          "phase_coupled_only": 18,
+          "disagreements": 41
+        }
+      }
+    }
+  },
+  "summary": {
+    "linear": {
+      "accuracy_mean": 0.95,
+      "accuracy_std": NaN,
+      "accuracies": [
+        0.95
+      ],
+      "errors_mean": 18.0,
+      "stored_parameters": 3210,
+      "effective_parameters": 3210,
+      "milliseconds_per_sample_mean": 0.0020783006524046264
+    },
+    "phase_uncoupled": {
+      "accuracy_mean": 0.8972222222222223,
+      "accuracy_std": NaN,
+      "accuracies": [
+        0.8972222222222223
+      ],
+      "errors_mean": 37.0,
+      "stored_parameters": 6420,
+      "effective_parameters": 6420,
+      "milliseconds_per_sample_mean": 6.238888700803121
+    },
+    "phase_coupled": {
+      "accuracy_mean": 0.8972222222222223,
+      "accuracy_std": NaN,
+      "accuracies": [
+        0.8972222222222223
+      ],
+      "errors_mean": 37.0,
+      "stored_parameters": 6520,
+      "effective_parameters": 6465,
+      "milliseconds_per_sample_mean": 6.19515221979883
+    }
+  },
+  "paired_differences": {
+    "phase_uncoupled_minus_linear": {
+      "mean": -0.0527777777777777,
+      "std": NaN,
+      "per_seed": [
+        -0.0527777777777777
+      ],
+      "wins": 0,
+      "losses": 1
+    },
+    "phase_coupled_minus_linear": {
+      "mean": -0.0527777777777777,
+      "std": NaN,
+      "per_seed": [
+        -0.0527777777777777
+      ],
+      "wins": 0,
+      "losses": 1
+    },
+    "phase_coupled_minus_phase_uncoupled": {
+      "mean": 0.0,
+      "std": NaN,
+      "per_seed": [
+        0.0
+      ],
+      "wins": 0,
+      "losses": 0
+    }
+  }
+}

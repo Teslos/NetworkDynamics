@@ -20,4 +20,8 @@ using Test
         include("test_ode_models.jl")
     end
 
+    @testset "FHN reservoir classifier" begin
+        include("test_fhn_reservoir.jl")
+    end
+
 end

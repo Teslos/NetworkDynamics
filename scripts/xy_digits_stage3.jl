@@ -15,14 +15,29 @@
 #   4. weight init N(0, 1/N) (Xavier-like) + bias strength h = 0.
 #   5. large batch (~300) and many iterations.
 #
-# This script applies all of the above (all-to-all, 11 hidden = Wang's best) and
-# compares to logreg + MLP on the SAME full-64px features. If test accuracy
-# approaches ~90%+, the Stage 2b ceiling was an artifact of our protocol, not a
-# fundamental limit of EP-XY.
+# EVALUATION PROTOCOL (revised). The first version of this script selected the
+# best checkpoint by repeatedly scoring the TEST set and then reported that same
+# maximum -- a selection-biased number, and from a single seed, while the
+# manuscript states every accuracy is a mean over seeds. Both are fixed here,
+# following src/hybrid/readout_ablation.py:
+#   * a stratified 20% VALIDATION split is carved out of Wang's 100-image/class
+#     training partition (so training sees 80/class); the checkpoint is selected
+#     on validation accuracy;
+#   * the test partition (70/class) is touched exactly once per seed, at the end,
+#     for two checkpoints fixed in advance -- the validation-selected one and the
+#     final iterate -- so nothing is selected on test;
+#   * everything runs over SEEDS, which resample the split, the weight init and
+#     the batch order; results are reported as mean +/- std;
+#   * the logreg/MLP baselines are refit per seed on the SAME reduced training
+#     split, so the comparison stays like-for-like.
+# Evaluation uses a frozen uniform [-pi,pi) draw for the free cells (one draw per
+# split, reused at every checkpoint), so the validation curve tracks the weights
+# rather than the initialization noise.
 #
 # Run: julia -t auto --project=. scripts/xy_digits_stage3.jl   (heavy: full 64px)
+#      XY_S3_SEEDS=1 XY_S3_ITER=50 julia -t auto --project=. scripts/xy_digits_stage3.jl
 
-using LinearAlgebra, Statistics, Random, Printf, DelimitedFiles
+using LinearAlgebra, Statistics, Random, Printf, DelimitedFiles, JSON
 using OrdinaryDiffEq
 using SciMLBase: get_du
 
@@ -37,25 +52,28 @@ steady_state_callback() = DiscreteCallback(
     terminate!; save_positions=(false, false))
 
 # ---------------------------------------------------------------- config (Wang protocol)
-const SEED       = 1
+const SEEDS      = 1:parse(Int, get(ENV, "XY_S3_SEEDS", "5"))
 const CLASSES    = collect(0:9)
-const N_TRAIN_PC = 100           # Wang: first 100 images / digit
+const N_TRAIN_PC = 100           # Wang: first 100 images / digit (train + validation)
 const N_TEST_PC  = 70            # Wang: next 70 images / digit
+const VAL_FRAC   = 0.2           # readout_ablation.py's VALIDATION_FRACTION
 const N_HIDDEN   = 11            # Wang's best all-to-all (N = 85)
 const N_EV       = 800           # T = 80
 const DT         = 0.1
 const BETA       = 0.1           # Wang's conventional choice (was 0.01)
 const STUDY_RATE = 0.1           # Wang: eta = 0.1
-const N_ITER     = 400           # Wang uses 1000; 400 to keep runtime tractable
+const N_ITER     = parse(Int, get(ENV, "XY_S3_ITER", "400"))  # Wang uses 1000
 const BATCH      = 100           # random images / iteration (basin averaging)
 const EVAL_EVERY = 25
 const ON, OFF    = π/2, -π/2
+const OUTFILE    = joinpath(@__DIR__, "..", "results", "xy_digits_stage3_seeds.json")
 
-Random.seed!(SEED)
 println("threads = ", Threads.nthreads(), ", WANG PROTOCOL: uniform [-pi,pi) init, ",
         "beta = ", BETA, ", full 64px, N(0,1/N) weights, one-sided grad")
 println("N_ev = ", N_EV, " (T=", N_EV*DT, "), tol = ", STEADY_TOL_S3, ", ",
-        N_ITER, " iters, batch ", BATCH, ", ", N_HIDDEN, " hidden\n")
+        N_ITER, " iters, batch ", BATCH, ", ", N_HIDDEN, " hidden")
+println("seeds = ", collect(SEEDS), ", validation fraction = ", VAL_FRAC,
+        " (checkpoint selected on validation, test evaluated once per seed)\n")
 
 raw = readdlm(joinpath(@__DIR__, "..", "data", "digits", "optdigits.tes"), ',', Int)
 const X_ALL = Float64.(raw[:, 1:64]); const Y_ALL = raw[:, 65]
@@ -73,8 +91,8 @@ function logreg_accuracy(Xtr, ytr, Xte, yte, n_class; iters=800, lr=0.5, l2=1e-3
     return mean([argmax(@view L[i, :]) for i in 1:size(Xte,1)] .== yte)
 end
 
-function mlp_accuracy(Xtr, ytr, Xte, yte, n_class; h=64, iters=4000, lr=0.2, l2=1e-4)
-    rng = MersenneTwister(SEED); n, d = size(Xtr)
+function mlp_accuracy(Xtr, ytr, Xte, yte, n_class, seed; h=64, iters=4000, lr=0.2, l2=1e-4)
+    rng = MersenneTwister(seed); n, d = size(Xtr)
     W1 = 0.1*randn(rng,d,h); b1 = zeros(h); W2 = 0.1*randn(rng,h,n_class); b2 = zeros(n_class)
     Y = zeros(n, n_class); for i in 1:n; Y[i, ytr[i]] = 1.0; end
     for _ in 1:iters
@@ -90,78 +108,152 @@ function mlp_accuracy(Xtr, ytr, Xte, yte, n_class; h=64, iters=4000, lr=0.2, l2=
     return mean([argmax(@view Lg[i, :]) for i in 1:size(Xte,1)] .== yte)
 end
 
-# ---------------------------------------------------------------- data (full 64px, Wang split)
-rng = MersenneTwister(SEED)
-classcol = Dict(c => j for (j, c) in enumerate(CLASSES))
-tr = Int[]; te = Int[]
-for c in CLASSES
-    ci = shuffle(rng, findall(==(c), Y_ALL))
-    append!(tr, ci[1:N_TRAIN_PC]); append!(te, ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC])
-end
-Xtr_raw = X_ALL[tr, :] ./ 16.0; Xte_raw = X_ALL[te, :] ./ 16.0
-ytr = [classcol[c] for c in Y_ALL[tr]]; yte = [classcol[c] for c in Y_ALL[te]]
-Xtr = (Xtr_raw .- 0.5) .* π; Xte = (Xte_raw .- 0.5) .* π       # phase in [-pi/2, pi/2]
-
+# ---------------------------------------------------------------- layout (seed-independent)
 const N_CLS = length(CLASSES)
 const N = 64 + N_HIDDEN + N_CLS
-input_index  = collect(1:64)
-output_index = collect(N-N_CLS+1:N)
-variable_index = setdiff(1:N, input_index)
-Ttr = [ytr[i] == j ? ON : OFF for i in eachindex(ytr), j in 1:N_CLS]
-Nd = length(ytr)
-println("Full 10-class, full 64px: N=$N, train=$Nd, test=$(length(yte))\n")
+const INPUT_INDEX    = collect(1:64)
+const OUTPUT_INDEX   = collect(N-N_CLS+1:N)
+const VARIABLE_INDEX = setdiff(1:N, INPUT_INDEX)
+const CLASSCOL = Dict(c => j for (j, c) in enumerate(CLASSES))
 
-# Wang init: weights N(0, 1/N), bias strength h = 0, bias direction uniform [-pi,pi).
-W0 = randn(rng, N, N) ./ sqrt(N); W0 = (W0 + W0') / 2; W0[diagind(W0)] .= 0
-bias0 = zeros(2, N); bias0[2, :] .= 2π .* (rand(rng, N) .- 0.5)
+# Wang's 100/70-per-class split, with a stratified validation hold-out carved
+# out of the training partition (readout_ablation.stratified_split). The seed
+# moves the split as well as the initialization.
+function make_split(seed)
+    rng = MersenneTwister(1000 + seed)
+    n_val = max(1, round(Int, VAL_FRAC * N_TRAIN_PC))
+    tr = Int[]; va = Int[]; te = Int[]
+    for c in CLASSES
+        ci = shuffle(rng, findall(==(c), Y_ALL))
+        append!(va, ci[1:n_val])
+        append!(tr, ci[n_val+1:N_TRAIN_PC])
+        append!(te, ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC])
+    end
+    pixels(idx) = X_ALL[idx, :] ./ 16.0
+    labels(idx) = [CLASSCOL[c] for c in Y_ALL[idx]]
+    phase(P) = (P .- 0.5) .* π                       # phase in [-pi/2, pi/2]
+    return (Xtr_raw=pixels(tr), Xva_raw=pixels(va), Xte_raw=pixels(te),
+            Xtr=phase(pixels(tr)), Xva=phase(pixels(va)), Xte=phase(pixels(te)),
+            ytr=labels(tr), yva=labels(va), yte=labels(te))
+end
 
-# Wang readout: p_i ~ 1 + sin(phi_i); predicted = argmax over output cells.
-function xy_accuracy(W, bias, X, y)
+uniform_init(rng, n) = 2π .* rand(rng, n, length(VARIABLE_INDEX)) .- π
+
+# Wang readout: p_i ~ 1 + sin(phi_i), predicted = argmax over output cells.
+# `var_init` is a frozen uniform [-pi,pi) draw, so the score depends only on W.
+function xy_accuracy(W, bias, X, y, var_init)
     n = size(X, 1)
-    phase0 = zeros(n, N); phase0[:, input_index] .= X
-    phase0[:, variable_index] .= 2π .* rand(rng, n, length(variable_index)) .- π   # uniform init
-    eq = run_network_batch(phase0, N_EV*DT, W, bias, fill(OFF, n, N_CLS), 0.0, input_index, output_index)
-    out = sin.(eq[:, output_index])
+    phase0 = zeros(n, N)
+    phase0[:, INPUT_INDEX] .= X
+    phase0[:, VARIABLE_INDEX] .= var_init
+    eq = run_network_batch(phase0, N_EV*DT, W, bias, fill(OFF, n, N_CLS), 0.0,
+                           INPUT_INDEX, OUTPUT_INDEX)
+    out = sin.(eq[:, OUTPUT_INDEX])
     return mean([argmax(@view out[i, :]) for i in 1:n] .== y)
 end
 
-# ---------------------------------------------------------------- Wang-protocol training
-W = copy(W0); bias = copy(bias0)
-sW = zeros(size(W)); rW = zeros(size(W)); sB = zeros(size(bias)); rB = zeros(size(bias))
-best_te = 0.0; best_W = copy(W); best_b = copy(bias)
+# ---------------------------------------------------------------- one seed
+function run_seed(seed)
+    s = make_split(seed)
+    Ttr = [s.ytr[i] == j ? ON : OFF for i in eachindex(s.ytr), j in 1:N_CLS]
+    Nd = length(s.ytr)
 
-println("Training (Wang protocol)...")
-t0 = time()
-for it in 1:N_ITER
-    bidx = rand(rng, 1:Nd, BATCH)                              # random batch
-    phase0 = zeros(BATCH, N)
-    phase0[:, input_index] .= Xtr[bidx, :]
-    phase0[:, variable_index] .= 2π .* rand(rng, BATCH, length(variable_index)) .- π  # UNIFORM [-pi,pi)
-    gW, gB, cost, _ = EP_param_gradient(W, bias, phase0, Ttr[bidx, :], BETA,
-                                        N_EV, DT, input_index, variable_index,
-                                        output_index; symmetric=false)  # one-sided (Wang)
-    global W, sW, rW = Adam_update(W, gW, STUDY_RATE, it, sW, rW)
-    global W = (W + W') / 2; W[diagind(W)] .= 0
-    global bias, sB, rB = Adam_update(bias, gB, STUDY_RATE, it, sB, rB)
-    if it == 1 || it % EVAL_EVERY == 0
-        te_acc = xy_accuracy(W, bias, Xte, yte)
-        if te_acc > best_te; global best_te = te_acc; global best_W = copy(W); global best_b = copy(bias); end
-        @printf("  iter %d: cost %.4f  test acc %.3f  (best %.3f)  [%.0fs]\n",
-                it, cost, te_acc, best_te, time()-t0)
+    rng = MersenneTwister(seed)
+    # Wang init: weights N(0, 1/N), bias strength h = 0, bias direction uniform.
+    W = randn(rng, N, N) ./ sqrt(N); W = (W + W') / 2; W[diagind(W)] .= 0
+    bias = zeros(2, N); bias[2, :] .= 2π .* (rand(rng, N) .- 0.5)
+
+    # Frozen evaluation inits (one draw per split, reused at every checkpoint).
+    init_tr = uniform_init(MersenneTwister(7000 + seed), Nd)
+    init_va = uniform_init(MersenneTwister(8000 + seed), length(s.yva))
+    init_te = uniform_init(MersenneTwister(9000 + seed), length(s.yte))
+
+    sW = zeros(size(W)); rW = zeros(size(W)); sB = zeros(size(bias)); rB = zeros(size(bias))
+    best_va = -1.0; best_W = copy(W); best_b = copy(bias); best_it = 0
+    history = Any[]
+
+    @printf("=== seed %d: train=%d val=%d test=%d ===\n",
+            seed, Nd, length(s.yva), length(s.yte))
+    t0 = time()
+    for it in 1:N_ITER
+        bidx = rand(rng, 1:Nd, BATCH)                              # random batch
+        phase0 = zeros(BATCH, N)
+        phase0[:, INPUT_INDEX] .= s.Xtr[bidx, :]
+        phase0[:, VARIABLE_INDEX] .= uniform_init(rng, BATCH)      # UNIFORM [-pi,pi)
+        gW, gB, cost, _ = EP_param_gradient(W, bias, phase0, Ttr[bidx, :], BETA,
+                                            N_EV, DT, INPUT_INDEX, VARIABLE_INDEX,
+                                            OUTPUT_INDEX; symmetric=false)  # one-sided (Wang)
+        W, sW, rW = Adam_update(W, gW, STUDY_RATE, it, sW, rW)
+        W = (W + W') / 2; W[diagind(W)] .= 0
+        bias, sB, rB = Adam_update(bias, gB, STUDY_RATE, it, sB, rB)
+        if it == 1 || it % EVAL_EVERY == 0
+            va = xy_accuracy(W, bias, s.Xva, s.yva, init_va)
+            if va > best_va
+                best_va = va; best_W = copy(W); best_b = copy(bias); best_it = it
+            end
+            push!(history, Dict("iter" => it, "cost" => cost, "val" => va))
+            @printf("  iter %d: cost %.4f  val acc %.3f  (best %.3f @ %d)  [%.0fs]\n",
+                    it, cost, va, best_va, best_it, time()-t0)
+        end
     end
+    secs = time() - t0
+
+    # The test partition is touched here only, for checkpoints fixed in advance.
+    xy_te_sel = xy_accuracy(best_W, best_b, s.Xte, s.yte, init_te)
+    xy_te_fin = xy_accuracy(W, bias, s.Xte, s.yte, init_te)
+    xy_tr = xy_accuracy(best_W, best_b, s.Xtr, s.ytr, init_tr)
+    lr_te = logreg_accuracy(s.Xtr_raw, s.ytr, s.Xte_raw, s.yte, N_CLS)
+    ml_te = mlp_accuracy(s.Xtr_raw, s.ytr, s.Xte_raw, s.yte, N_CLS, seed)
+
+    @printf("  seed %d done in %.0fs: train %.3f | val %.3f @ iter %d | test %.3f (final iterate %.3f) | logreg %.3f | MLP %.3f\n\n",
+            seed, secs, xy_tr, best_va, best_it, xy_te_sel, xy_te_fin, lr_te, ml_te)
+
+    return (seed=seed, train=xy_tr, val=best_va, selected_iter=best_it,
+            test=xy_te_sel, test_final=xy_te_fin, logreg=lr_te, mlp=ml_te,
+            seconds=secs, history=history)
 end
-secs = time() - t0
 
-xy_tr = xy_accuracy(best_W, best_b, Xtr, ytr); xy_te = xy_accuracy(best_W, best_b, Xte, yte)
-lr_te = logreg_accuracy(Xtr_raw, ytr, Xte_raw, yte, N_CLS)
-ml_te = mlp_accuracy(Xtr_raw, ytr, Xte_raw, yte, N_CLS)
+# ---------------------------------------------------------------- all seeds
+results = [run_seed(seed) for seed in SEEDS]
 
-@printf("\ntrained %d iters in %.0fs\n", N_ITER, secs)
-println("="^58)
-@printf("%-14s | %-10s %-10s   (chance %.3f, full 64px)\n", "model", "train acc", "test acc", 1/N_CLS)
-println("-"^58)
-@printf("%-14s | %-10.3f %-10.3f\n", "XY (EP,Wang)", xy_tr, xy_te)
-@printf("%-14s | %-10s %-10.3f\n", "logreg", "-", lr_te)
-@printf("%-14s | %-10s %-10.3f\n", "MLP", "-", ml_te)
+ms(v) = length(v) > 1 ? @sprintf("%.3f +/- %.3f", mean(v), std(v)) : @sprintf("%.3f", only(v))
+xy   = [r.test for r in results]
+xyf  = [r.test_final for r in results]
+xytr = [r.train for r in results]
+lrb  = [r.logreg for r in results]
+mlb  = [r.mlp for r in results]
+gap  = 100 .* (xy .- lrb)
+
+println("="^72)
+@printf("%d seeds, full 64px, chance %.3f. Test evaluated once per seed.\n",
+        length(results), 1/N_CLS)
+println("-"^72)
+@printf("%-26s | %-18s %-18s\n", "model", "train acc", "test acc")
+@printf("%-26s | %-18s %-18s\n", "XY (EP, Wang, val-sel)", ms(xytr), ms(xy))
+@printf("%-26s | %-18s %-18s\n", "XY (final iterate)", "-", ms(xyf))
+@printf("%-26s | %-18s %-18s\n", "logreg", "-", ms(lrb))
+@printf("%-26s | %-18s %-18s\n", "MLP", "-", ms(mlb))
+println("-"^72)
+@printf("per-seed test: %s\n", join((@sprintf("%.3f", a) for a in xy), ", "))
+@printf("XY - logreg, paired: %s pp (XY ahead on %d/%d seeds)\n",
+        ms(gap), count(>(0), gap), length(gap))
 println("\nWang paper (full 64px, all-to-all 11 hidden): XY 93.3%, linear 90.4%, ANN 94.3%")
 println("Our Stage 2b (4x4, 40 hidden):                 XY 0.797, logreg 0.837, MLP 0.900")
+
+open(OUTFILE, "w") do io
+    JSON.print(io, Dict(
+        "seeds" => collect(SEEDS), "iterations" => N_ITER, "hidden" => N_HIDDEN,
+        "validation_fraction" => VAL_FRAC, "train_per_class" => N_TRAIN_PC,
+        "test_per_class" => N_TEST_PC, "beta" => BETA,
+        "per_seed" => [Dict(string(k) => getfield(r, k) for k in keys(r)) for r in results],
+        "summary" => Dict(
+            "xy_test_mean" => mean(xy),
+            "xy_test_std" => length(xy) > 1 ? std(xy) : NaN,
+            "xy_test_final_mean" => mean(xyf),
+            "xy_train_mean" => mean(xytr),
+            "logreg_test_mean" => mean(lrb),
+            "mlp_test_mean" => mean(mlb),
+            "xy_minus_logreg_pp_mean" => mean(gap)),
+    ), 2)
+end
+println("\nwrote ", OUTFILE)

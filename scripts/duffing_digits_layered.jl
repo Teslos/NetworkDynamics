@@ -22,10 +22,18 @@ using OrdinaryDiffEq
 using SciMLBase: get_du
 
 EP_DUFFING_SKIP_RUN = true
-include(joinpath(@__DIR__, "..", "notebooks", "EP-Duffing-Network.jl"))  # adam_update, SOLVER_KWARGS
+include(joinpath(@__DIR__, "..", "notebooks", "EP-Duffing-Network.jl"))
+include(joinpath(@__DIR__, "..", "src", "utils", "eval_protocol.jl"))
+using .EvalProtocol  # adam_update, SOLVER_KWARGS
 
 # ---------------------------------------------------------------- config
-const SEED        = 1
+# Evaluation protocol (revised 2026-09-12): checkpoint selected on a stratified
+# 20% validation split carved out of the training partition, test evaluated once
+# per seed on checkpoints fixed in advance, result reported as a mean over seeds.
+# See src/utils/eval_protocol.jl. The earlier single-seed, test-selected number
+# for this script was 0.18 (about chance).
+const SEEDS       = 1:parse(Int, get(ENV, "DUF_LAY_SEEDS", "5"))
+const VAL_FRAC    = 0.2
 const CLASSES     = collect(0:9)
 const N_TRAIN_PC  = 60
 const N_TEST_PC   = 40
@@ -34,15 +42,15 @@ const N_EV_T      = 40.0           # relaxation horizon
 const DELTA       = 1.0
 const BETA        = 0.1
 const LR          = 0.02
-const N_ITER      = 200
+const N_ITER      = parse(Int, get(ENV, "DUF_LAY_ITER", "200"))
 const BATCH       = 100
 const ANNEAL_FRAC = 0.5
 const S_START     = 0.3
 const TEST_RANGE  = 1.5
 const EVAL_EVERY  = 25
 const STEADY_TOL  = 1e-3
+const OUTFILE     = joinpath(@__DIR__, "..", "results", "ep_duffing_digits_layered_seeds.json")
 
-Random.seed!(SEED)
 println("threads = ", Threads.nthreads(), "  (run with -t auto)")
 
 raw = readdlm(joinpath(@__DIR__, "..", "data", "digits", "optdigits.tes"), ',', Int)
@@ -133,8 +141,8 @@ function logreg_acc(Xtr,ytr,Xte,yte,nc; iters=800, lr=0.5, l2=1e-3)
     end
     L=Xte*W.+b'; mean([argmax(@view L[i,:]) for i in 1:size(Xte,1)].==yte)
 end
-function mlp_acc(Xtr,ytr,Xte,yte,nc; h=64, iters=3000, lr=0.2, l2=1e-4)
-    rng=MersenneTwister(SEED); n,d=size(Xtr)
+function mlp_acc(Xtr,ytr,Xte,yte,nc,seed; h=64, iters=3000, lr=0.2, l2=1e-4)
+    rng=MersenneTwister(seed); n,d=size(Xtr)
     W1=0.1*randn(rng,d,h);b1=zeros(h);W2=0.1*randn(rng,h,nc);b2=zeros(nc)
     Y=zeros(n,nc); for i in 1:n; Y[i,ytr[i]]=1.0; end
     for _ in 1:iters
@@ -147,66 +155,100 @@ function mlp_acc(Xtr,ytr,Xte,yte,nc; h=64, iters=3000, lr=0.2, l2=1e-4)
 end
 
 # ---------------------------------------------------------------- data
-rng = MersenneTwister(SEED)
-cc = Dict(c=>j for (j,c) in enumerate(CLASSES))
-tr=Int[]; te=Int[]
-for c in CLASSES
-    ci = shuffle(rng, findall(==(c), Y_ALL))
-    append!(tr, ci[1:N_TRAIN_PC]); append!(te, ci[N_TRAIN_PC+1:N_TRAIN_PC+N_TEST_PC])
+const CC = Dict(c=>j for (j,c) in enumerate(CLASSES))
+const ON, OFF = 1.0, -1.0
+function make_split(seed)
+    tr, va, te = class_split(Y_ALL, CLASSES, N_TRAIN_PC, N_TEST_PC; val_frac=VAL_FRAC, seed=seed)
+    feat(idx) = pool_all(X_ALL[idx,:]) ./ 16.0
+    lab(idx) = [CC[c] for c in Y_ALL[idx]]
+    ftr, fva, fte = feat(tr), feat(va), feat(te)
+    # pixels -> position in [-1,1]
+    return (Xtr_p=ftr, Xva_p=fva, Xte_p=fte,
+            Xtr=2 .* ftr .- 1, Xva=2 .* fva .- 1, Xte=2 .* fte .- 1,
+            ytr=lab(tr), yva=lab(va), yte=lab(te))
 end
-Xtr_p = pool_all(X_ALL[tr,:]) ./ 16.0; Xte_p = pool_all(X_ALL[te,:]) ./ 16.0
-ytr = [cc[c] for c in Y_ALL[tr]]; yte = [cc[c] for c in Y_ALL[te]]
-Xtr = 2 .* Xtr_p .- 1; Xte = 2 .* Xte_p .- 1        # pixels -> position in [-1,1]
-Nd = length(ytr)
-ON, OFF = 1.0, -1.0
-Ttr = [ytr[i]==j ? ON : OFF for i in eachindex(ytr), j in 1:N_CLS]
-println("Layered Duffing digits: N=$N (16 in, $N_HID hid, 10 out), train=$Nd test=$(length(yte))\n")
+println("Layered Duffing digits: N=$N (16 in, $N_HID hid, 10 out)
+")
 
 s_at(it) = it >= max(1,round(Int,ANNEAL_FRAC*N_ITER)) ? 1.0 :
            S_START + (1.0-S_START)*(it-1)/(max(1,round(Int,ANNEAL_FRAC*N_ITER))-1)
 
-# ---------------------------------------------------------------- init
-W = 0.1*randn(rng,N,N); W=(W+W')/2; W .*= MASK
-h = zeros(N)
-
-function duff_acc(W,h,X,y)
+# `var_init` is a frozen full-range basin draw, so the score depends only on (W,h).
+function duff_acc(W,h,X,y,var_init)
     n=size(X,1); x0=zeros(n,N); x0[:,INPUT].=X
-    x0[:,VAR] .= TEST_RANGE.*(2 .*rand(rng,n,length(VAR)).-1)
+    x0[:,VAR] .= var_init
     eq = drelax(W,h,-1.0,1.0, x0, fill(OFF,n,N_CLS), 0.0)
     out=eq[:,OUT]; mean([argmax(@view out[i,:]) for i in 1:n].==y)
 end
 
-# ---------------------------------------------------------------- train
-sW=zeros(N,N);rW=zeros(N,N);sh=zeros(N);rh=zeros(N)
-best_te=0.0; bW=copy(W); bh=copy(h)
-println("Training layered Duffing (basin-avg + anneal, one-sided)...")
-t0=time()
-for it in 1:N_ITER
-    s = s_at(it); a=-s; c=s
-    bidx = rand(rng, 1:Nd, BATCH)
-    x0 = zeros(BATCH,N); x0[:,INPUT] .= Xtr[bidx,:]
-    x0[:,VAR] .= TEST_RANGE.*(2 .*rand(rng,BATCH,length(VAR)).-1)   # full-range basin init
-    gW,gh,cost = dgrad(W,h,a,c, x0, Ttr[bidx,:], BETA)
-    global W,sW,rW = adam_update(W,gW,LR,it,sW,rW)
-    global W = (W+W')/2; global W .*= MASK
-    global h,sh,rh = adam_update(h,gh,LR,it,sh,rh)
-    if it==1 || it % EVAL_EVERY == 0
-        te=duff_acc(W,h,Xte,yte)
-        if te>best_te; global best_te=te; global bW=copy(W); global bh=copy(h); end
-        @printf("  iter %d: cost %.3f (s=%.2f)  test %.3f (best %.3f) [%.0fs]\n",
-                it, cost, s, te, best_te, time()-t0)
+# ---------------------------------------------------------------- one seed
+function run_seed(seed)
+    s = make_split(seed); Nd = length(s.ytr)
+    Ttr = [s.ytr[i]==j ? ON : OFF for i in eachindex(s.ytr), j in 1:N_CLS]
+    rng = MersenneTwister(seed)
+    W = 0.1*randn(rng,N,N); W=(W+W')/2; W .*= MASK
+    h = zeros(N)
+    basin(sd,n) = TEST_RANGE.*(2 .*rand(MersenneTwister(sd),n,length(VAR)).-1)
+    init_tr=basin(7000+seed,Nd); init_va=basin(8000+seed,length(s.yva)); init_te=basin(9000+seed,length(s.yte))
+    sW=zeros(N,N);rW=zeros(N,N);sh=zeros(N);rh=zeros(N)
+    best_va=-1.0; bW=copy(W); bh=copy(h); best_it=0
+    @printf("=== seed %d: train=%d val=%d test=%d ===
+", seed, Nd, length(s.yva), length(s.yte))
+    t0=time()
+    for it in 1:N_ITER
+        sa = s_at(it); a=-sa; c=sa
+        bidx = rand(rng, 1:Nd, BATCH)
+        x0 = zeros(BATCH,N); x0[:,INPUT] .= s.Xtr[bidx,:]
+        x0[:,VAR] .= TEST_RANGE.*(2 .*rand(rng,BATCH,length(VAR)).-1)   # full-range basin init
+        gW,gh,cost = dgrad(W,h,a,c, x0, Ttr[bidx,:], BETA)
+        W,sW,rW = adam_update(W,gW,LR,it,sW,rW)
+        W = (W+W')/2; W .*= MASK
+        h,sh,rh = adam_update(h,gh,LR,it,sh,rh)
+        if it==1 || it % EVAL_EVERY == 0
+            va = duff_acc(W,h,s.Xva,s.yva,init_va)
+            if va>best_va; best_va=va; bW=copy(W); bh=copy(h); best_it=it; end
+            @printf("  iter %d: cost %.3f (s=%.2f)  val %.3f (best %.3f @ %d) [%.0fs]
+",
+                    it, cost, sa, va, best_va, best_it, time()-t0)
+        end
     end
+    secs=time()-t0
+    # The test partition is evaluated here only, on checkpoints fixed in advance.
+    te_sel=duff_acc(bW,bh,s.Xte,s.yte,init_te); te_fin=duff_acc(W,h,s.Xte,s.yte,init_te)
+    tr_acc=duff_acc(bW,bh,s.Xtr,s.ytr,init_tr)
+    lr_te=logreg_acc(s.Xtr_p,s.ytr,s.Xte_p,s.yte,N_CLS)
+    ml_te=mlp_acc(s.Xtr_p,s.ytr,s.Xte_p,s.yte,N_CLS,seed)
+    @printf("  seed %d done in %.0fs: train %.3f | val %.3f @ iter %d | test %.3f (final iterate %.3f) | logreg %.3f | MLP %.3f
+
+",
+            seed, secs, tr_acc, best_va, best_it, te_sel, te_fin, lr_te, ml_te)
+    return (seed=seed, train=tr_acc, val=best_va, selected_iter=best_it, test=te_sel,
+            test_final=te_fin, logreg=lr_te, mlp=ml_te, seconds=secs)
 end
-secs=time()-t0
 
-du_tr=duff_acc(bW,bh,Xtr,ytr); du_te=duff_acc(bW,bh,Xte,yte)
-lr_te=logreg_acc(Xtr_p,ytr,Xte_p,yte,N_CLS); ml_te=mlp_acc(Xtr_p,ytr,Xte_p,yte,N_CLS)
-
-@printf("\ntrained %d iters in %.0fs\n", N_ITER, secs)
-println("="^54)
-@printf("%-16s | %-10s %-10s  (chance %.3f, 4x4)\n","model","train","test",1/N_CLS)
-println("-"^54)
-@printf("%-16s | %-10.3f %-10.3f\n","Duffing(layer)",du_tr,du_te)
-@printf("%-16s | %-10s %-10.3f\n","logreg","-",lr_te)
-@printf("%-16s | %-10s %-10.3f\n","MLP","-",ml_te)
-println("\nRef: XY Stage 3 (full 64px, layered/all-to-all) 94%; Duffing worry = 2^10 output basins")
+results = [run_seed(seed) for seed in SEEDS]
+du=[r.test for r in results]; duf=[r.test_final for r in results]; dutr=[r.train for r in results]
+println("="^64)
+@printf("%d seeds, 4x4-pooled, chance %.3f. Test evaluated once per seed.
+", length(results), 1/N_CLS)
+println("-"^64)
+@printf("%-24s | %-16s %-16s
+","model","train","test")
+@printf("%-24s | %-16s %-16s
+","Duffing(layer, val-sel)",msfmt(dutr),msfmt(du))
+@printf("%-24s | %-16s %-16s
+","  (final iterate)","-",msfmt(duf))
+@printf("%-24s | %-16s %-16s
+","logreg","-",msfmt([r.logreg for r in results]))
+@printf("%-24s | %-16s %-16s
+","MLP","-",msfmt([r.mlp for r in results]))
+println("-"^64)
+@printf("per-seed test: %s
+", join((@sprintf("%.3f",a) for a in du), ", "))
+println("
+Ref: bistable (double-well) output cells = 2^10 output basins per input")
+write_seed_record(OUTFILE, Dict("seeds"=>collect(SEEDS), "iterations"=>N_ITER, "hidden"=>N_HID,
+    "validation_fraction"=>VAL_FRAC, "train_per_class"=>N_TRAIN_PC, "test_per_class"=>N_TEST_PC,
+    "beta"=>BETA, "inputs"=>"4x4 pooled", "readout"=>"bistable double-well outputs"), results)
+println("
+wrote ", OUTFILE)

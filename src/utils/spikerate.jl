@@ -1,5 +1,6 @@
 module spikerate
 using Distributions
+using Random
 export rate, rate_conv
 
 function rate(
@@ -9,6 +10,7 @@ function rate(
     offset::Float64=0.0,
     first_spike_time::Int=0,
     time_var_input::Bool=false,
+    rng::Random.AbstractRNG=Random.default_rng(),
 )
 
     """
@@ -27,6 +29,10 @@ function rate(
     :param time_var_input: Set to ``true`` if input array is time-varying.
         Otherwise, `first_spike_time!=0` will modify the wrong dimension.
         Defaults to ``false``
+    :param rng: Random source for the Bernoulli draws. Pass an explicitly seeded
+        RNG to make an encoding reproducible; the default global RNG makes every
+        call draw a fresh spike train, which silently de-seeds any experiment
+        that encodes its data through this function.
     :return: rate encoding spike train of input features of shape
         [num_steps x batch x input_size]
     """
@@ -51,7 +57,7 @@ function rate(
 
     # intended for time-varying input data
     if time_var_input
-        spike_data = rate_conv(data)
+        spike_data = rate_conv(data; rng=rng)
 
         # zeros are added directly to the start of 0th (time) dimension
         if first_spike_time > 0
@@ -73,7 +79,7 @@ function rate(
             ) * gain .+ offset
         )
         time_data = reshape(time_data, (num_steps, size(data)...))
-        spike_data = rate_conv(time_data)
+        spike_data = rate_conv(time_data; rng=rng)
 
         # zeros are multiplied by the start of the 0th (time) dimension
         if first_spike_time > 0
@@ -86,7 +92,7 @@ end
 
 using Flux
 
-function rate_conv(data::AbstractArray)
+function rate_conv(data::AbstractArray; rng::Random.AbstractRNG=Random.default_rng())
     """
     Convert array into Poisson spike trains using the features as
     the mean of a binomial distribution.
@@ -102,7 +108,7 @@ function rate_conv(data::AbstractArray)
     clipped_data = clamp.(data, 0, 1)
 
     # Generate spikes according to a Bernoulli distribution
-    spike_data = rand.(Bernoulli.(clipped_data))
+    spike_data = rand.(rng, Bernoulli.(clipped_data))
 
     return spike_data
 end

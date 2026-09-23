@@ -1,7 +1,9 @@
 # EP-XY digits scale-up — Stage 3: Wang protocol reproduces ~94%, ceiling refuted
 
 Script: `scripts/xy_digits_stage3.jl`
-Run: `julia -t auto --project=. scripts/xy_digits_stage3.jl` (2026-07-01, 20 threads)
+Run: `julia -t auto --project=. scripts/xy_digits_stage3.jl`
+(2026-09-13, 5 seeds, ~2.5 h/seed under load; supersedes the single-seed run of
+2026-07-01)
 
 ## Goal
 
@@ -23,15 +25,34 @@ Protocol changes vs Stage 2/2b:
 
 ## Results
 
-| model         | train acc | test acc |
-|---------------|----------:|---------:|
-| XY (EP, Wang) | **0.983** | **0.941** |
-| logreg (64px) | —         | 0.959    |
-| MLP (64px)    | —         | 0.964    |
+5 seeds, validation-selected checkpoint, test evaluated once per seed:
 
-Chance = 0.10. Trained 400 iterations in 2906 s (~48 min). Test-accuracy
-trajectory: 0.20 (it 1) → 0.767 (25) → 0.904 (100) → 0.924 (150) → 0.941 (400);
-cost 5.56 → 0.25 — still climbing at 400 (Wang used 1000).
+| model                    | train acc     | test acc      |
+|--------------------------|--------------:|--------------:|
+| XY (EP, Wang, val-sel)   | 0.981 ± 0.006 | **0.936 ± 0.012** |
+| XY (final iterate)       | —             | 0.934 ± 0.017 |
+| logreg (64px, same split)| —             | 0.950 ± 0.005 |
+| MLP (64px, same split)   | —             | 0.964 ± 0.005 |
+
+Per-seed test: 0.937, 0.950, 0.946, 0.924, 0.923. Paired XY − logreg:
+−1.40 ± 0.93 pp, XY ahead on 0/5 seeds. Chance = 0.10.
+
+**Protocol corrected (2026-09-13).** The first version of this experiment
+reported **0.941**, the maximum over 17 evaluations *of the test set* from a
+single seed. The script now carves a stratified 20% validation split out of the
+training partition (so training sees 80 images/class rather than 100), selects
+the checkpoint on validation, and evaluates the test partition once per seed on
+checkpoints fixed in advance; 5 seeds resample the split, the initialisation and
+the batch order, and logreg/MLP are refit per seed on the same reduced split
+(hence logreg 0.950 here vs 0.959 in `results/baselines/`). Per-seed records:
+`results/xy_digits_stage3_seeds.json`.
+
+**This result barely moved: 0.941 → 0.936 ± 0.012, inside the seed spread.**
+Unlike the Duffing digit runs, which lost 2–5 pp when test-selection was removed,
+the XY network had nothing for the selection to exploit: the final iterate
+(0.934 ± 0.017) matches the selected checkpoint, so the validation curve is flat
+near the end rather than peaked. The Wang-protocol conclusion below stands as
+written.
 
 Reference — Wang paper (full 64px, all-to-all, 11 hidden): XY 93.3%, linear
 90.4%, ANN 94.3%. Our Stage 2b (4×4, 40 hidden): XY 0.797, could not fit train.
@@ -39,9 +60,9 @@ Reference — Wang paper (full 64px, all-to-all, 11 hidden): XY 93.3%, linear
 ## Conclusion — the Stage 2b ceiling was an implementation artifact
 
 **EP-XY genuinely scales to ~94% on 10-class digits, reproducing Wang.** Our
-94.1% test matches Wang's 93.3% all-to-all / 94.1% layered, and — the decisive
-point — the network now **fits the training set (0.983)**, which Stage 2b (0.816)
-could not, using *fewer* hidden units (11 vs 40). That rules out a capacity or
+93.6 ± 1.2% test matches Wang's 93.3% all-to-all / 94.1% layered, and — the decisive
+point — the network now **fits the training set (0.981 ± 0.006)**, which Stage 2b could
+not, using *fewer* hidden units (11 vs 40). That rules out a capacity or
 fundamental-conditioning limit: it was the training protocol.
 
 What mattered, in order:
@@ -60,8 +81,9 @@ The mechanism our earlier stages identified (basin-sensitive XY weight gradient)
 was correct; the error was concluding it was insurmountable. The standard
 multistability remedy fixes it.
 
-Nuance on baselines: our XY (0.941) is slightly below our softmax logreg (0.959)
-and MLP (0.964), whereas Wang reports XY *beating* his linear classifier (90.4%).
+Nuance on baselines: our XY (0.936 ± 0.012) is slightly below our softmax logreg
+(0.950 ± 0.005) and MLP (0.964 ± 0.005), whereas Wang reports XY *beating* his
+linear classifier (90.4%).
 The difference is baseline strength — our softmax logreg is stronger than Wang's
 parameter-matched MSE linear classifier. Relative to Wang's own baselines, our
 result reproduces "XY ≳ linear". With Wang's full 1000 iterations (vs our 400)
@@ -73,7 +95,7 @@ close further.
 - Stage 0: fixed point exists (gradient flow).
 - Stage 1: matches logreg on ≤5 easy/confusable classes.
 - Stage 2/2b: full 10-class under a cut budget → ~0.80, *appeared* ceiling.
-- **Stage 3: Wang protocol → 0.941, fits train, reproduces the paper.** The
+- **Stage 3: Wang protocol → 0.936 ± 0.012, fits train, reproduces the paper.** The
   apparent ceiling was our protocol (near-zero init, downsampling, small β), not
   EP-XY. **EP genuinely trains coupled phase oscillators as a ~94% 10-class
   classifier.**

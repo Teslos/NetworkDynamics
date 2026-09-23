@@ -1,0 +1,323 @@
+{
+  "seed": 42,
+  "epochs": 50,
+  "controls": {
+    "euler_dt0.08": {
+      "solver": {
+        "use_ode": false,
+        "phase_dt": 0.08,
+        "relax_tol": 0.001
+      },
+      "time_scale": 1.0,
+      "history": [
+        {
+          "epoch": 1,
+          "test_accuracy": 0.5916666666666667,
+          "test_cross_entropy": 1.1565553585688273,
+          "equilibrium_residual": 0.01784295178949833
+        },
+        {
+          "epoch": 2,
+          "test_accuracy": 0.7138888888888889,
+          "test_cross_entropy": 0.7461780005031162,
+          "equilibrium_residual": 0.013584503200319079
+        },
+        {
+          "epoch": 3,
+          "test_accuracy": 0.7555555555555555,
+          "test_cross_entropy": 0.6356110599305894,
+          "equilibrium_residual": 0.020916449195808835
+        },
+        {
+          "epoch": 4,
+          "test_accuracy": 0.8333333333333334,
+          "test_cross_entropy": 0.5413359483083089,
+          "equilibrium_residual": 0.02335115646322568
+        },
+        {
+          "epoch": 5,
+          "test_accuracy": 0.8638888888888889,
+          "test_cross_entropy": 0.514903974533081,
+          "equilibrium_residual": 0.017498262392150032
+        },
+        {
+          "epoch": 6,
+          "test_accuracy": 0.8694444444444445,
+          "test_cross_entropy": 0.4693506340185801,
+          "equilibrium_residual": 0.026350623369216918
+        },
+        {
+          "epoch": 7,
+          "test_accuracy": 0.8583333333333333,
+          "test_cross_entropy": 0.4604346374670664,
+          "equilibrium_residual": 0.020172220137384202
+        },
+        {
+          "epoch": 8,
+          "test_accuracy": 0.8722222222222222,
+          "test_cross_entropy": 0.3978024933073256,
+          "equilibrium_residual": 0.02820579819381237
+        },
+        {
+          "epoch": 9,
+          "test_accuracy": 0.8916666666666667,
+          "test_cross_entropy": 0.37707093440824085,
+          "equilibrium_residual": 0.02749569287730588
+        },
+        {
+          "epoch": 10,
+          "test_accuracy": 0.8861111111111111,
+          "test_cross_entropy": 0.4227599716848797,
+          "equilibrium_residual": 0.033653600845072004
+        },
+        {
+          "epoch": 11,
+          "test_accuracy": 0.8722222222222222,
+          "test_cross_entropy": 0.4465316626760695,
+          "equilibrium_residual": 0.043509258578221
+        },
+        {
+          "epoch": 12,
+          "test_accuracy": 0.8444444444444444,
+          "test_cross_entropy": 0.5041769332355923,
+          "equilibrium_residual": 0.06716136700577206
+        },
+        {
+          "epoch": 13,
+          "test_accuracy": 0.8444444444444444,
+          "test_cross_entropy": 0.5259047852622138,
+          "equilibrium_residual": 0.10140486160914103
+        },
+        {
+          "epoch": 14,
+          "test_accuracy": 0.8222222222222222,
+          "test_cross_entropy": 0.5773561557133993,
+          "equilibrium_residual": 0.16622100472450257
+        },
+        {
+          "epoch": 15,
+          "test_accuracy": 0.775,
+          "test_cross_entropy": 0.7422168970108032,
+          "equilibrium_residual": 0.20962135195732118
+        },
+        {
+          "epoch": 16,
+          "test_accuracy": 0.7944444444444444,
+          "test_cross_entropy": 0.6851276410950555,
+          "equilibrium_residual": 0.19799301359388563
+        },
+        {
+          "epoch": 17,
+          "test_accuracy": 0.8111111111111111,
+          "test_cross_entropy": 0.6875493884086609,
+          "equilibrium_residual": 0.1385711881849501
+        },
+        {
+          "epoch": 18,
+          "test_accuracy": 0.8194444444444444,
+          "test_cross_entropy": 0.6310371233357324,
+          "equilibrium_residual": 0.1348832964897156
+        },
+        {
+          "epoch": 19,
+          "test_accuracy": 0.8277777777777777,
+          "test_cross_entropy": 0.6435754405127632,
+          "equilibrium_residual": 0.11117785539891985
+        },
+        {
+          "epoch": 20,
+          "test_accuracy": 0.875,
+          "test_cross_entropy": 0.47329702344205643,
+          "equilibrium_residual": 0.05643425169918272
+        },
+        {
+          "epoch": 21,
+          "test_accuracy": 0.9027777777777778,
+          "test_cross_entropy": 0.34913620750109353,
+          "equilibrium_residual": 0.06282511307961411
+        },
+        {
+          "epoch": 22,
+          "test_accuracy": 0.9222222222222223,
+          "test_cross_entropy": 0.3377161857154634,
+          "equilibrium_residual": 0.03980439545379744
+        },
+        {
+          "epoch": 23,
+          "test_accuracy": 0.9111111111111111,
+          "test_cross_entropy": 0.3402318355109957,
+          "equilibrium_residual": 0.044255956593486995
+        },
+        {
+          "epoch": 24,
+          "test_accuracy": 0.9166666666666666,
+          "test_cross_entropy": 0.3170786996682485,
+          "equilibrium_residual": 0.022411108389496802
+        },
+        {
+          "epoch": 25,
+          "test_accuracy": 0.9277777777777778,
+          "test_cross_entropy": 0.267637913260195,
+          "equilibrium_residual": 0.023565513640642168
+        },
+        {
+          "epoch": 26,
+          "test_accuracy": 0.9388888888888889,
+          "test_cross_entropy": 0.26276576287216613,
+          "equilibrium_residual": 0.0247812253733476
+        },
+        {
+          "epoch": 27,
+          "test_accuracy": 0.9361111111111111,
+          "test_cross_entropy": 0.3125386795236005,
+          "equilibrium_residual": 0.026087599454654588
+        },
+        {
+          "epoch": 28,
+          "test_accuracy": 0.9333333333333333,
+          "test_cross_entropy": 0.29293276949061287,
+          "equilibrium_residual": 0.02593493453330464
+        },
+        {
+          "epoch": 29,
+          "test_accuracy": 0.9222222222222223,
+          "test_cross_entropy": 0.28444106363587907,
+          "equilibrium_residual": 0.02914613096250428
+        },
+        {
+          "epoch": 30,
+          "test_accuracy": 0.925,
+          "test_cross_entropy": 0.2681208525266912,
+          "equilibrium_residual": 0.024050123782621488
+        },
+        {
+          "epoch": 31,
+          "test_accuracy": 0.925,
+          "test_cross_entropy": 0.2660731318924162,
+          "equilibrium_residual": 0.020559991606407695
+        },
+        {
+          "epoch": 32,
+          "test_accuracy": 0.925,
+          "test_cross_entropy": 0.2809405118227005,
+          "equilibrium_residual": 0.02181946031956209
+        },
+        {
+          "epoch": 33,
+          "test_accuracy": 0.9166666666666666,
+          "test_cross_entropy": 0.28022091289361317,
+          "equilibrium_residual": 0.02902299923201402
+        },
+        {
+          "epoch": 34,
+          "test_accuracy": 0.9055555555555556,
+          "test_cross_entropy": 0.2953682013683849,
+          "equilibrium_residual": 0.023116816911432476
+        },
+        {
+          "epoch": 35,
+          "test_accuracy": 0.9277777777777778,
+          "test_cross_entropy": 0.2760833862755034,
+          "equilibrium_residual": 0.0201192204737001
+        },
+        {
+          "epoch": 36,
+          "test_accuracy": 0.9361111111111111,
+          "test_cross_entropy": 0.2628175010283788,
+          "equilibrium_residual": 0.020927166959477796
+        },
+        {
+          "epoch": 37,
+          "test_accuracy": 0.9111111111111111,
+          "test_cross_entropy": 0.3028014123439789,
+          "equilibrium_residual": 0.026707933677567377
+        },
+        {
+          "epoch": 38,
+          "test_accuracy": 0.9277777777777778,
+          "test_cross_entropy": 0.2887416288256645,
+          "equilibrium_residual": 0.020716795780592493
+        },
+        {
+          "epoch": 39,
+          "test_accuracy": 0.9222222222222223,
+          "test_cross_entropy": 0.284211236735185,
+          "equilibrium_residual": 0.019252527008454003
+        },
+        {
+          "epoch": 40,
+          "test_accuracy": 0.9222222222222223,
+          "test_cross_entropy": 0.2805630776617262,
+          "equilibrium_residual": 0.019547632357312574
+        },
+        {
+          "epoch": 41,
+          "test_accuracy": 0.925,
+          "test_cross_entropy": 0.25806699461407134,
+          "equilibrium_residual": 0.02267256495025423
+        },
+        {
+          "epoch": 42,
+          "test_accuracy": 0.925,
+          "test_cross_entropy": 0.23327887455622356,
+          "equilibrium_residual": 0.022038252382642693
+        },
+        {
+          "epoch": 43,
+          "test_accuracy": 0.9277777777777778,
+          "test_cross_entropy": 0.23350187871191236,
+          "equilibrium_residual": 0.018517415360030202
+        },
+        {
+          "epoch": 44,
+          "test_accuracy": 0.9305555555555556,
+          "test_cross_entropy": 0.23176012105411953,
+          "equilibrium_residual": 0.018033665439320935
+        },
+        {
+          "epoch": 45,
+          "test_accuracy": 0.9361111111111111,
+          "test_cross_entropy": 0.23840525531106524,
+          "equilibrium_residual": 0.02545891491075357
+        },
+        {
+          "epoch": 46,
+          "test_accuracy": 0.9333333333333333,
+          "test_cross_entropy": 0.2516291873322593,
+          "equilibrium_residual": 0.026697625261214046
+        },
+        {
+          "epoch": 47,
+          "test_accuracy": 0.9166666666666666,
+          "test_cross_entropy": 0.3226436111662123,
+          "equilibrium_residual": 0.03293445292446348
+        },
+        {
+          "epoch": 48,
+          "test_accuracy": 0.9333333333333333,
+          "test_cross_entropy": 0.28004831108782025,
+          "equilibrium_residual": 0.023028463083836766
+        },
+        {
+          "epoch": 49,
+          "test_accuracy": 0.925,
+          "test_cross_entropy": 0.2712955825858646,
+          "equilibrium_residual": 0.026180827596949206
+        },
+        {
+          "epoch": 50,
+          "test_accuracy": 0.9361111111111111,
+          "test_cross_entropy": 0.2421359575457043,
+          "equilibrium_residual": 0.022606111980146833
+        }
+      ],
+      "best_accuracy": 0.9388888888888889,
+      "peak_epoch": 26,
+      "final_accuracy": 0.9361111111111111,
+      "accuracy_drop_from_peak": 0.002777777777777768,
+      "residual_first": 0.01784295178949833,
+      "residual_max": 0.20962135195732118,
+      "residual_final": 0.022606111980146833
+    }
+  }
+}

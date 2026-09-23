@@ -1,0 +1,94 @@
+{
+  "hidden": 40,
+  "summary": {
+    "logreg_mean": 0.8345,
+    "val_mean": 0.22000000000000003,
+    "seconds_std": 26.657927656655932,
+    "test_final_std": 0.008403868156985806,
+    "test_std": 0.0487018993469454,
+    "test_final_mean": 0.10149999999999999,
+    "val_std": 0.05055250296034367,
+    "logreg_std": 0.008177713616898051,
+    "train_mean": 0.2129166666666667,
+    "selected_iter_mean": 80.0,
+    "train_std": 0.04790307778328144,
+    "selected_iter_std": 27.386127875258307,
+    "mlp_mean": 0.877,
+    "mlp_std": 0.004472135954999583,
+    "seconds_mean": 137.4844000339508,
+    "test_mean": 0.21500000000000002,
+    "seed_std": 1.5811388300841898,
+    "seed_mean": 3.0
+  },
+  "iterations": 200,
+  "per_seed": [
+    {
+      "test": 0.2625,
+      "mlp": 0.875,
+      "val": 0.26666666666666666,
+      "train": 0.25833333333333336,
+      "selected_iter": 75,
+      "seed": 1,
+      "test_final": 0.1,
+      "logreg": 0.835,
+      "seconds": 135.05800008773804
+    },
+    {
+      "test": 0.2,
+      "mlp": 0.88,
+      "val": 0.16666666666666666,
+      "train": 0.175,
+      "selected_iter": 50,
+      "seed": 2,
+      "test_final": 0.0975,
+      "logreg": 0.8225,
+      "seconds": 155.81200003623962
+    },
+    {
+      "test": 0.27,
+      "mlp": 0.88,
+      "val": 0.26666666666666666,
+      "train": 0.26875,
+      "selected_iter": 125,
+      "seed": 3,
+      "test_final": 0.1025,
+      "logreg": 0.845,
+      "seconds": 105.32599997520447
+    },
+    {
+      "test": 0.18,
+      "mlp": 0.87,
+      "val": 0.23333333333333334,
+      "train": 0.19791666666666666,
+      "selected_iter": 75,
+      "seed": 4,
+      "test_final": 0.0925,
+      "logreg": 0.8325,
+      "seconds": 119.78200006484985
+    },
+    {
+      "test": 0.1625,
+      "mlp": 0.88,
+      "val": 0.16666666666666666,
+      "train": 0.16458333333333333,
+      "selected_iter": 75,
+      "seed": 5,
+      "test_final": 0.115,
+      "logreg": 0.8375,
+      "seconds": 171.44400000572205
+    }
+  ],
+  "test_per_class": 40,
+  "readout": "graded softmax, double-well hidden",
+  "train_per_class": 60,
+  "beta": 0.1,
+  "validation_fraction": 0.2,
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "inputs": "4x4 pooled"
+}
