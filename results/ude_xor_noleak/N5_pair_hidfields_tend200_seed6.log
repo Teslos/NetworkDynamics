@@ -1,0 +1,66 @@
+Iter   20  loss = -0.105309
+Iter   40  loss = -0.621255
+Iter   60  loss = -0.184500
+Iter   80  loss = -0.284597
+Iter  100  loss = -1.067350
+Iter  120  loss = -1.606368
+Iter  140  loss = -2.570717
+Iter  160  loss = -2.650467
+Iter  180  loss = -2.696663
+Iter  200  loss = -2.716723
+Iter  220  loss = -2.733259
+Iter  240  loss = -2.751346
+Iter  260  loss = -1.597834
+Iter  280  loss = -1.884074
+Iter  300  loss = -2.081163
+Iter  320  loss = -2.281402
+Iter  340  loss = -2.450817
+Iter  360  loss = -2.562451
+Iter  380  loss = -2.629884
+Iter  400  loss = -2.661423
+Iter  420  loss = -2.682676
+Iter  440  loss = -2.699789
+Iter  460  loss = -2.713518
+Iter  480  loss = -2.724537
+Iter  500  loss = -2.733386
+Iter  520  loss = -2.739924
+Iter  540  loss = -2.741318
+Iter  560  loss = -2.746473
+Iter  580  loss = -2.751610
+Iter  600  loss = -2.755985
+Iter  620  loss = -2.759505
+Iter  640  loss = -2.762270
+Iter  660  loss = -2.764424
+Iter  680  loss = -2.766107
+Iter  700  loss = -2.767430
+Iter  720  loss = -2.768477
+Iter  740  loss = -2.769309
+Iter  760  loss = -2.769972
+Iter  780  loss = -2.770499
+Iter  800  loss = -2.770919
+Saved: results/models/Wang-Kuramoto-ude-xor-N5_clamp_outfield_hidfields_pair_tend200_seed6.jld2
+
+── XOR evaluation (trained UDE, reference) ─────────────────
+  FF  φ_out=-0.517π  target=-0.500π  ✓
+  FT  φ_out=+0.505π  target=+0.500π  ✓
+  TF  φ_out=+0.482π  target=+0.500π  ✓
+  TT  φ_out=-0.500π  target=-0.500π  ✓
+Accuracy: 4/4 = 100%   worst deviation from target 0.018π
+
+── XOR evaluation (trained UDE, rk4) ─────────────────
+  FF  φ_out=-0.517π  target=-0.500π  ✓
+  FT  φ_out=+0.505π  target=+0.500π  ✓
+  TF  φ_out=+0.482π  target=+0.500π  ✓
+  TT  φ_out=-0.500π  target=-0.500π  ✓
+Accuracy: 4/4 = 100%   worst deviation from target 0.018π
+
+── XOR evaluation (zero-coupling control, reference) ─────────────────
+  FF  φ_out=+0.894π  target=-0.500π  ✗
+  FT  φ_out=+0.894π  target=+0.500π  ✓
+  TF  φ_out=+0.894π  target=+0.500π  ✓
+  TT  φ_out=+0.894π  target=-0.500π  ✗
+Accuracy: 2/4 = 50%   worst deviation from target 0.606π
+RESULT N=5 variant=clamp_outfield_hidfields_pair_tend200 seed=6 final_loss=-2.770938 accuracy=4/4 maxdev=0.018pi rk4_dt0.1=4/4 control=2/4
+
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N5_clamp_outfield_hidfields_pair_tend200_seed6.png
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N5_clamp_outfield_hidfields_pair_tend200_seed6.pdf

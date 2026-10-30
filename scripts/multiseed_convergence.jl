@@ -138,9 +138,18 @@ elseif SUBSTRATE == "xy"
             return final_phase[OUTPUT_IDX[1]], sign(training_target[i])
         end
         acc = robust_accuracy(relax_out, MersenneTwister(1000 + seed))
+        # Sign-correctness says nothing about how close the output gets to its
+        # target phase; record the worst wrapped deviation over the same draws.
+        maxdev = let rng = MersenneTwister(1000 + seed), m = 0.0
+            for i in 1:4, _ in 1:N_TEST_INIT
+                out, _ = relax_out(i, rng)
+                m = max(m, abs(rem2pi(out - training_target[i], RoundNearest)))
+            end
+            m
+        end
         push!(robust_acc, acc); push!(best_cost, minimum(ch)); push!(final_cost, ch[end])
-        @printf("  seed %2d: robust acc %5.1f%%  | best %.4f  final %.4f\n",
-                seed, 100 * acc, minimum(ch), ch[end])
+        @printf("  seed %2d: robust acc %5.1f%%  | max deviation %.3fπ | best %.4f  final %.4f\n",
+                seed, 100 * acc, maxdev / π, minimum(ch), ch[end])
     end
     summarize(robust_acc, nothing, best_cost, final_cost)
 

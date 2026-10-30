@@ -9,8 +9,49 @@ using Random, StableRNGs
 using LaTeXStrings, Printf
 using Distributions
 using JLD2
+# Network size and seed: `--N=4 --seed=2` on the command line, or WK_N / WK_SEED
+# in ENV when the file is include()d from a warm session.
+function _wk_arg(name, envname, default)
+    for a in ARGS
+        startswith(a, "--$name=") && return parse(Int, split(a, "=")[2])
+    end
+    return parse(Int, get(ENV, envname, string(default)))
+end
+const SEED = _wk_arg("seed", "WK_SEED", 1)
+# Coupling mask A_ij: `--topology=complete` (default) or `--topology=ws`
+# (Watts–Strogatz, mean degree 4, rewiring 0.25, as in Figure 1 of the paper).
+const TOPOLOGY = let t = get(ENV, "WK_TOPOLOGY", "complete")
+    for a in ARGS
+        startswith(a, "--topology=") && (t = split(a, "=")[2])
+    end
+    Symbol(t)
+end
+# EP-comparison switches, both off by default: `--clamp=1` holds the inputs at
+# their pattern phases (as the EP-trained XY network does); `--outfield=1` gives
+# the output a learned field (h, ψ), one pair shared by all four patterns.
+const CLAMP    = _wk_arg("clamp", "WK_CLAMP", 0) == 1
+const OUTFIELD = _wk_arg("outfield", "WK_OUTFIELD", 0) == 1
+# `--hidfields=1` also gives every hidden oscillator its own learned field, as
+# the EP-trained XY network has on all free cells.
+const HIDFIELDS = _wk_arg("hidfields", "WK_HIDFIELDS", 0) == 1
+# Coupling form: `--coupling=nn` (default; one NN of the two phases, shared by
+# all edges), `pair` (a learned weight per directed edge, no NN), `sympair`
+# (the same, symmetrised so K_ij = K_ji, as in EP), or `nnid`
+# (the shared NN also given one-hot labels of the edge's two nodes, so it can
+# tell edges apart). `--hidden=` sets the NN width (default 16).
+const COUPLING = let c = get(ENV, "WK_COUPLING", "nn")
+    for a in ARGS
+        startswith(a, "--coupling=") && (c = split(a, "=")[2])
+    end
+    Symbol(c)
+end
+COUPLING in (:nn, :pair, :sympair, :nnid) || error("--coupling must be nn, pair, sympair or nnid")
+const HID = _wk_arg("hidden", "WK_HIDDEN", 16)
+# Weight of the settling penalty |dφ/dt|² at the end of the loss window
+# (`--settle=100`; default 0 = off)
+const SETTLE = _wk_arg("settle", "WK_SETTLE", 0)
 # default rng
-rng = StableRNG(1)
+rng = StableRNG(SEED)
 
 function plot_rect_map(N::Int, M::Int, data::Vector{Float64}, ax)
     #ax = Axis(f[1, 1])
@@ -50,7 +91,7 @@ function xor_gate(u::Vector{Int64})
     return u[1] ⊻ u[2]
 end
 
-N = 3   # 2 inputs + 1 output (no hidden)
+N = _wk_arg("N", "WK_N", 3)   # 2 inputs + (N-3) hidden + 1 output
 labels_xor = ["FF", "FT", "TF", "TT"]
 
 # ── Part 1: NetworkDynamics reference simulation (skipped unless --nd passed) ─
@@ -176,40 +217,78 @@ end # if "--nd" in ARGS
 #   - The NN is shared across all edges and is the only thing optimized.
 #   - Loss: Wang et al. (2024) cost C = -log(1 + cos(φ_out - φ_target)) summed
 #     over all 4 XOR input patterns. More stable than 1-cos near ±π.
-#   - Deterministic initial conditions — input nodes clamped to pattern values.
+#   - Deterministic initial conditions — input nodes start at their pattern values.
+#   - Only the two input nodes carry a field. An earlier version set the output
+#     node's ψ to the XOR answer with h = 0.5, which pulls the output onto the
+#     target with no coupling at all; every N then "solved" XOR trivially.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Plain Julia neural network — bypasses LuxLib.Utils._return_type bug that
 # affects all activations in this Lux/LuxLib version under Zygote AD.
-# Architecture: 4 → 16 (tanh) → 1 (linear).  Parameters stored flat so
+# Architecture: NN_IN → HID (tanh) → 1 (linear).  Parameters stored flat so
 # ComponentArray gives a single gradient vector for the optimizer.
-const nn_init = ComponentArray(
-    W1 = randn(rng, Float64, 16 * 4) .* Float64(0.1),
-    b1 = zeros(Float64, 16),
-    W2 = randn(rng, Float64, 16) .* Float64(0.1),
-    b2 = zeros(Float64, 1)
-)
+const NN_IN = COUPLING == :nnid ? 4 + 2N : 4
+const nn_init = let base = COUPLING in (:pair, :sympair) ?
+        (K = randn(rng, Float64, N * N) .* Float64(0.1),) :
+        (W1 = randn(rng, Float64, HID * NN_IN) .* Float64(0.1),
+         b1 = zeros(Float64, HID),
+         W2 = randn(rng, Float64, HID) .* Float64(0.1),
+         b2 = zeros(Float64, 1))
+    out = OUTFIELD ? (h_out = [0.1], psi_out = [0.0]) : (;)
+    hid = HIDFIELDS ? (h_hid = fill(0.1, N - 3), psi_hid = zeros(N - 3)) : (;)
+    ComponentArray(; base..., out..., hid...)
+end
 
 function apply_nn(nn_p, x::AbstractVector)
-    W1 = reshape(nn_p.W1, 16, 4)
+    W1 = reshape(nn_p.W1, HID, NN_IN)
     h  = tanh.(W1 * x .+ nn_p.b1)
     return dot(nn_p.W2, h) + nn_p.b2[1]
 end
 
-# XOR truth table as target phases — rows: [FF, FT, TF, TT]
-# Columns: [in1, in2, hid1, hid2, out]
-const Ψ_XOR = Float64[
-    -π/2  -π/2  -π/2;   # 0 XOR 0 = 0
-    -π/2   π/2   π/2;   # 0 XOR 1 = 1
-     π/2  -π/2   π/2;   # 1 XOR 0 = 1
-     π/2   π/2  -π/2    # 1 XOR 1 = 0
+# Weight of the j → i edge under the chosen coupling form
+function edge_weight(nn_p, φ, i, j)
+    COUPLING == :pair && return nn_p.K[(j - 1) * N + i]
+    # Symmetric K_ij = K_ji, as in EP: the free dynamics are then a gradient flow
+    COUPLING == :sympair && return (nn_p.K[(j - 1) * N + i] + nn_p.K[(i - 1) * N + j]) / 2
+    inp = [sin(φ[j]), cos(φ[j]), sin(φ[i]), cos(φ[i])]
+    if COUPLING == :nnid
+        onehot = zeros(2N); onehot[i] = 1.0; onehot[N + j] = 1.0
+        inp = vcat(inp, onehot)
+    end
+    return apply_nn(nn_p, inp)
+end
+
+# XOR input phases — rows: [FF, FT, TF, TT], columns: [in1, in2]
+const Ψ_IN = Float64[
+    -π/2  -π/2;
+    -π/2   π/2;
+     π/2  -π/2;
+     π/2   π/2
 ]
-const H_NODES     = Float64[0.5, 0.5, 0.5]        # bias strength per node
+# Field phases per node for pattern k; hidden and output ψ are unused (h = 0)
+psi_xor(k::Int) = vcat(Ψ_IN[k, :], zeros(N - 2))
+const H_NODES     = vcat(0.5, 0.5, zeros(N - 2))  # field on inputs only
 const XOR_TARGETS = Float64[-π/2, π/2, π/2, -π/2] # target phase for output node
-const OUTPUT_NODE = 3
+const OUTPUT_NODE = N
+# Fixed, distinct hidden initial phases: with a shared NN, identical hidden
+# initial states would stay identical forever and act as one oscillator.
+const HIDDEN_U0 = 0.5 .* randn(StableRNG(SEED + 1000), max(N - 3, 0))
 const UDE_TSPAN   = (0.0, 200.0)
 const UDE_TSTEPS  = range(UDE_TSPAN[1], UDE_TSPAN[2], length=400)
-const TRAIN_T     = 5.0   # short horizon for Zygote AD (50 steps); evaluate at T=200
+# The cost is averaged over these times, not taken at t=5 alone: scoring only
+# t=5 rewards passing through the target, and many such networks drift off it
+# by T=200. Averaging over the settling window keeps the optimum at -4·log(2).
+const T_END       = _wk_arg("tend", "WK_TEND", 20)   # `--tend=200` scores the settled state
+const SCORE_T     = Tuple(T_END .* (0.25, 0.5, 0.75, 1.0))
+
+# Fixed topology mask; only the shared NN coupling is learned
+const ADJ = if TOPOLOGY == :complete
+    trues(N, N)
+elseif TOPOLOGY == :ws
+    Matrix(adjacency_matrix(watts_strogatz(N, 4, 0.25; rng=StableRNG(SEED + 2000)))) .!= 0
+else
+    error("--topology must be complete or ws")
+end
 
 # UDE ODE — p = ComponentArray(nn=<Lux params>, psi=<vertex ψ for this pattern>)
 # Pure functional form (no mutation) so Zygote can differentiate through it.
@@ -217,21 +296,27 @@ function kuramoto_rhs(φ, nn_p, psi)
     return [begin
         s = -H_NODES[i] * sin(φ[i] - psi[i])
         for j in 1:N
-            if j != i
-                inp = [sin(φ[j]), cos(φ[j]), sin(φ[i]), cos(φ[i])]
-                w_ij = apply_nn(nn_p, inp)
+            if j != i && ADJ[i, j]
+                w_ij = edge_weight(nn_p, φ, i, j)
                 s = s + w_ij * sin(φ[j] - φ[i])
             end
         end
-        s
+        if OUTFIELD && i == OUTPUT_NODE
+            s = s - nn_p.h_out[1] * sin(φ[i] - nn_p.psi_out[1])
+        end
+        if HIDFIELDS && 3 <= i < OUTPUT_NODE
+            s = s - nn_p.h_hid[i - 2] * sin(φ[i] - nn_p.psi_hid[i - 2])
+        end
+        # zero(s) rather than 0.0 keeps the element type (Dual under AD)
+        CLAMP && i <= 2 ? zero(s) : s
     end for i in 1:N]
 end
 
 # Manual RK4 integrator — fully differentiable by Zygote.
 # Uses immutable rebinding (φ = φ .+ ...) so no mutation hits Zygote's tape.
-# Training uses T=20 (fast); evaluation/plotting can pass a larger T.
+# float.() rather than Float64.() so a Dual state can be integrated onward.
 function rk4_integrate(φ0, nn_p, psi; T=20.0, dt=0.1)
-    φ     = Float64.(φ0)
+    φ     = float.(φ0)
     nsteps = round(Int, T / dt)
     for _ in 1:nsteps
         k1 = kuramoto_rhs(φ,               nn_p, psi)
@@ -243,47 +328,37 @@ function rk4_integrate(φ0, nn_p, psi; T=20.0, dt=0.1)
     return φ
 end
 
-# Trajectory integrator for plotting — mutating, efficient, no gradient needed.
-function rk4_trajectory(φ0::Vector{Float64}, nn_p, psi; T=200.0, dt=0.2, save_every=5)
-    φ      = copy(φ0)
-    nsteps = round(Int, T / dt)
-    nsaved = nsteps ÷ save_every + 1
-    ts     = Vector{Float64}(undef, nsaved)
-    traj   = Matrix{Float64}(undef, N, nsaved)
-    ts[1]  = 0.0
-    traj[:, 1] = φ
-    si = 2
-    for step in 1:nsteps
-        k1 = kuramoto_rhs(φ,               nn_p, psi)
-        k2 = kuramoto_rhs(φ .+ 0.5*dt.*k1, nn_p, psi)
-        k3 = kuramoto_rhs(φ .+ 0.5*dt.*k2, nn_p, psi)
-        k4 = kuramoto_rhs(φ .+    dt.*k3,  nn_p, psi)
-        φ .= φ .+ (dt/6.0) .* (k1 .+ 2.0.*k2 .+ 2.0.*k3 .+ k4)
-        if step % save_every == 0 && si <= nsaved
-            ts[si]     = step * dt
-            traj[:, si] = φ
-            si += 1
-        end
-    end
-    return ts, traj
-end
-
 # Wang et al. (2024) phase cost — numerically guarded near anti-phase
 wang_cost(φ::Real, φt::Real) = -log(max(1.0 + cos(φ - φt), 1e-8))
 
-# Initial condition builder — input nodes clamped to XOR pattern phases
+# Initial condition builder — inputs start at the pattern phases, output at 0
 function make_u0(k::Int)
-    return [Ψ_XOR[k, 1], Ψ_XOR[k, 2], 0.0]
+    return vcat(Ψ_IN[k, 1], Ψ_IN[k, 2], HIDDEN_U0, 0.0)
 end
 
-# Loss: Wang cost on final state (T=20) summed over all 4 XOR patterns.
-# Uses manual RK4 so Zygote differentiates through integration directly —
+# Correct when the output is strictly nearer its target than the opposite
+# target (wrap-safe). A strict comparison matters: an untouched output at 0 is
+# equidistant, and `cos(φ - target) > 0` passes it on rounding (cos(π/2) ≈ 6e-17).
+xor_correct(φ_out, target) = cos(φ_out - target) > cos(φ_out + target) + 1e-6
+
+# Loss: Wang cost averaged over SCORE_T, summed over all 4 XOR patterns.
+# Uses manual RK4 so AD differentiates through integration directly —
 # no ODE solver adjoint, no FunctionWrappers, no _return_type errors.
 function loss_xor(nn_p)
     loss = zero(eltype(nn_p))
     for k in 1:4
-        φ_final = rk4_integrate(make_u0(k), nn_p, Ψ_XOR[k, :]; T=TRAIN_T)
-        loss   += wang_cost(φ_final[OUTPUT_NODE], XOR_TARGETS[k])
+        φ, t_prev = make_u0(k), 0.0
+        for t in SCORE_T
+            φ = rk4_integrate(φ, nn_p, psi_xor(k); T=t - t_prev)
+            loss  += wang_cost(φ[OUTPUT_NODE], XOR_TARGETS[k]) / length(SCORE_T)
+            t_prev = t
+        end
+        # Settling penalty: the window cost alone rewards a trajectory that only
+        # passes through the target; penalising |dφ/dt|² at the window's end asks
+        # for a state that is at rest there, which is what EP trains on.
+        if SETTLE > 0
+            loss += SETTLE * sum(abs2, kuramoto_rhs(φ, nn_p, psi_xor(k)))
+        end
     end
     return loss
 end
@@ -310,45 +385,114 @@ optprob2    = remake(optprob; u0=result_ude.minimizer)
 result_ude2 = Optimization.solve(optprob2, OptimizationOptimisers.AdamW(0.001);
     callback=cb, maxiters=300)
 
-# Save trained NN parameters
+# Save trained NN parameters as a plain vector: the optimizer result holds
+# closures that JLD2 cannot rebuild outside this script.
+const VARIANT = (TOPOLOGY == :complete ? "" : "_$(TOPOLOGY)") *
+                (CLAMP ? "_clamp" : "") * (OUTFIELD ? "_outfield" : "") * (HIDFIELDS ? "_hidfields" : "") *
+                (COUPLING == :nn ? "" : "_$(COUPLING)") *
+                (!(COUPLING in (:pair, :sympair)) && HID != 16 ? "_h$(HID)" : "") *
+                (SETTLE > 0 ? "_settle$(SETTLE)" : "") *
+                (T_END != 20 ? "_tend$(T_END)" : "")
+const RUN_TAG = "N$(N)$(VARIANT)_seed$(SEED)"
 let outdir = joinpath(@__DIR__, "../../results/models")
     isdir(outdir) || mkpath(outdir)
-    @save joinpath(outdir, "Wang-Kuramoto-result-neuralode-N$(N).jld2") result_ude2
-    println("Saved: results/models/Wang-Kuramoto-result-neuralode-N$(N).jld2")
+    nn_params = collect(result_ude2.minimizer)
+    @save joinpath(outdir, "Wang-Kuramoto-ude-xor-$(RUN_TAG).jld2") nn_params
+    println("Saved: results/models/Wang-Kuramoto-ude-xor-$(RUN_TAG).jld2")
 end
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
-println("\n── XOR evaluation (trained UDE) ─────────────────")
-trained_nn = result_ude2.minimizer
-let n_correct = 0
+# Reference solve of the actual ODE: adaptive Tsit5 at tight tolerance. The
+# fixed-step RK4 used for training is not trusted for evaluation, because a
+# network trained through it can give different answers at different dt.
+function solve_reference(nn_p, k; T=UDE_TSPAN[2], saveat=nothing)
+    prob = ODEProblem((φ, _, _) -> kuramoto_rhs(φ, nn_p, psi_xor(k)),
+                      make_u0(k), (0.0, T))
+    return isnothing(saveat) ?
+        solve(prob, Tsit5(); reltol=1e-10, abstol=1e-10, save_everystep=false) :
+        solve(prob, Tsit5(); reltol=1e-10, abstol=1e-10, saveat=saveat)
+end
+
+function evaluate_xor(nn_p, title; integrator=:reference)
+    println("\n── XOR evaluation ($title, $integrator) ─────────────────")
+    n_correct, maxdev = 0, 0.0
     for k in 1:4
-        φ_final = rk4_integrate(make_u0(k), trained_nn, Ψ_XOR[k, :]; T=UDE_TSPAN[2])
-        φ_out   = φ_final[OUTPUT_NODE]
+        φ_final = integrator == :reference ? solve_reference(nn_p, k).u[end] :
+                  rk4_integrate(make_u0(k), nn_p, psi_xor(k); T=UDE_TSPAN[2])
+        φ_out   = rem2pi(φ_final[OUTPUT_NODE], RoundNearest)
         target  = XOR_TARGETS[k]
-        ok      = sign(φ_out) == sign(target)
+        ok      = xor_correct(φ_out, target)
         ok && (n_correct += 1)
+        maxdev  = max(maxdev, abs(rem2pi(φ_out - target, RoundNearest)))
         @printf("  %s  φ_out=%+.3fπ  target=%+.3fπ  %s\n",
                 labels_xor[k], φ_out/π, target/π, ok ? "✓" : "✗")
     end
-    @printf("Accuracy: %d/4 = %.0f%%\n\n", n_correct, 100.0 * n_correct / 4)
+    @printf("Accuracy: %d/4 = %.0f%%   worst deviation from target %.3fπ\n",
+            n_correct, 100.0 * n_correct / 4, maxdev / π)
+    return n_correct, maxdev
 end
 
+trained_nn = result_ude2.minimizer
+n_correct, maxdev = evaluate_xor(trained_nn, "trained UDE")
+n_rk4, _   = evaluate_xor(trained_nn, "trained UDE"; integrator=:rk4)
+# Control: everything except the learned coupling. With no output field the
+# output must stay at its initial phase; with one, a single field shared by all
+# patterns cannot separate them. Above 2/4 here would mean the target leaks in.
+control_nn = let c = zero(trained_nn)
+    if OUTFIELD
+        c.h_out .= trained_nn.h_out; c.psi_out .= trained_nn.psi_out
+    end
+    if HIDFIELDS
+        c.h_hid .= trained_nn.h_hid; c.psi_hid .= trained_nn.psi_hid
+    end
+    c
+end
+n_control, _ = evaluate_xor(control_nn, "zero-coupling control")
+final_loss = loss_xor(trained_nn)
+@printf("RESULT N=%d variant=%s seed=%d final_loss=%.6f accuracy=%d/4 maxdev=%.3fpi rk4_dt0.1=%d/4 control=%d/4\n\n",
+        N, isempty(VARIANT) ? "complete" : VARIANT[2:end], SEED, final_loss,
+        n_correct, maxdev / π, n_rk4, n_control)
+
 # ── Plot trained dynamics ─────────────────────────────────────────────────────
-fig_ude = Figure(size=(1000, 700))
+# Sized for a full-width paper figure: large fonts, thick lines, one shared legend.
+fig_ude = Figure(size=(1300, 900), fontsize=30)
 for k in 1:4
     row, col = divrem(k-1, 2)
-    ax = CairoMakie.Axis(fig_ude[row+1, col+1]; xlabel="Time", ylabel="Phase / π",
-              title="UDE XOR $(labels_xor[k])")
-    ts, traj = rk4_trajectory(make_u0(k), trained_nn, Ψ_XOR[k, :]; T=UDE_TSPAN[2])
-    for i in [1, 2, OUTPUT_NODE]
-        lbl = i == OUTPUT_NODE ? "Node $i (output)" : "Node $i (input)"
-        lines!(ax, ts, traj[i, :] ./ π; linewidth=2, label=lbl)
+    ax = CairoMakie.Axis(fig_ude[row+1, col+1];
+              xlabel = row == 1 ? "Time" : "",
+              ylabel = col == 0 ? "Phase / π" : "",
+              title = labels_xor[k], titlesize=32,
+              yticks = -1:0.5:1, xgridvisible=false, ygridvisible=false)
+    # Plot the same reference solve that the evaluation scores
+    sol  = solve_reference(trained_nn, k; saveat=0.2)
+    ts   = sol.t
+    # Phases folded to (-π, π] for display; a NaN at each wrap breaks the line
+    # instead of drawing a vertical jump across the panel
+    wrapped = rem2pi.(reduce(hcat, sol.u), RoundNearest) ./ π
+    for i in 1:N, s in 2:length(ts)
+        abs(wrapped[i, s] - wrapped[i, s-1]) > 1 && (wrapped[i, s] = NaN)
     end
-    hlines!(ax, [XOR_TARGETS[k]/π]; linestyle=:dash, color=:black, label="target")
-    axislegend(ax; position=:rc)
+    for i in 3:N-1
+        lines!(ax, ts, wrapped[i, :]; linewidth=2, color=(:gray50, 0.6),
+               label = i == 3 ? "hidden" : nothing)
+    end
+    lines!(ax, ts, wrapped[1, :]; linewidth=4, color=:steelblue, label="input 1")
+    lines!(ax, ts, wrapped[2, :]; linewidth=4, color=:darkorange, linestyle=:dashdot,
+           label="input 2")
+    lines!(ax, ts, wrapped[OUTPUT_NODE, :]; linewidth=5, color=:firebrick, label="output")
+    hlines!(ax, [XOR_TARGETS[k]/π]; linestyle=:dash, linewidth=3, color=:black,
+            label="target")
+    ylims!(ax, -1.05, 1.05)
+    row == 0 && hidexdecorations!(ax; grid=false, ticks=false)
+    col == 1 && hideydecorations!(ax; grid=false, ticks=false)
 end
+Legend(fig_ude[3, 1:2], content(fig_ude[1, 1]); orientation=:horizontal,
+       framevisible=false, labelsize=30)
 let figdir = joinpath(@__DIR__, "../../results/figures")
     isdir(figdir) || mkpath(figdir)
-    save(joinpath(figdir, "kuramoto_xor_ude_N$(N).png"), fig_ude)
-    println("Saved: results/figures/kuramoto_xor_ude_N$(N).png")
+    for ext in ("png", "pdf")
+        f = joinpath(figdir, "kuramoto_xor_ude_$(RUN_TAG).$ext")
+        save(f, fig_ude)
+        println("Saved: ", f)
+    end
 end

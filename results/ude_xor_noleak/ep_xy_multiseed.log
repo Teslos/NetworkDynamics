@@ -1,0 +1,34 @@
+Multi-seed EP convergence -- XY/Kuramoto (XOR), 10 seeds x 3000 epochs
+Epoch 1: Cost = 0.5226753825248222
+  seed  1: robust acc 100.0%  | max deviation 0.005π | best 0.0000  final 0.0001
+Epoch 1: Cost = 0.5702900975667079
+  seed  2: robust acc 100.0%  | max deviation 0.040π | best 0.0001  final 0.0010
+Epoch 1: Cost = 0.5103301135925136
+  seed  3: robust acc 100.0%  | max deviation 0.017π | best 0.0001  final 0.0002
+Epoch 1: Cost = 0.5177151294038457
+Converged at epoch 1360
+  seed  4: robust acc 100.0%  | max deviation 0.001π | best 0.0000  final 0.0000
+Epoch 1: Cost = 0.5142722135688383
+  seed  5: robust acc 100.0%  | max deviation 0.007π | best 0.0000  final 0.0001
+Epoch 1: Cost = 0.48060887979353206
+  seed  6: robust acc 100.0%  | max deviation 0.006π | best 0.0000  final 0.0001
+Epoch 1: Cost = 0.5179854363317332
+  seed  7: robust acc 100.0%  | max deviation 0.013π | best 0.0001  final 0.0006
+Epoch 1: Cost = 0.4938312963173682
+  seed  8: robust acc 100.0%  | max deviation 0.002π | best 0.0000  final 0.0000
+Epoch 1: Cost = 0.522302420226858
+  seed  9: robust acc 100.0%  | max deviation 0.013π | best 0.0001  final 0.0002
+Epoch 1: Cost = 0.518824866222042
+Converged at epoch 759
+  seed 10: robust acc 100.0%  | max deviation 0.036π | best 0.0000  final 0.0000
+
+================================================================
+Seeds: 10   (robust accuracy = sign-correct over 4 patterns x 20 inits)
+Robust solve rate (acc >= 95%):  10/10 = 100%
+Robust XOR accuracy: median 100%, mean 100%, min 100%, max 100%
+Cost-based solve rate (best<0.10): 10/10  -- selection-biased, see note
+Stable rate (final epoch <0.10):   10/10 = 100%
+Best cost  median 0.0000 | Final cost median 0.0001 (bounce)
+Note: best-checkpoint cost is the min over many noisy-init epochs, so it
+is optimistically selected; robust accuracy is the honest convergence metric.
+================================================================
