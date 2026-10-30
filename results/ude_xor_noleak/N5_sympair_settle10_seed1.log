@@ -1,0 +1,66 @@
+Iter   20  loss = 0.019500
+Iter   40  loss = -0.064274
+Iter   60  loss = -0.678051
+Iter   80  loss = -1.908894
+Iter  100  loss = -2.365442
+Iter  120  loss = -2.503086
+Iter  140  loss = -2.512082
+Iter  160  loss = -2.565917
+Iter  180  loss = -2.587555
+Iter  200  loss = -2.568612
+Iter  220  loss = -2.602597
+Iter  240  loss = -2.630910
+Iter  260  loss = -2.564255
+Iter  280  loss = -2.596981
+Iter  300  loss = -2.615731
+Iter  320  loss = -2.634069
+Iter  340  loss = -2.657131
+Iter  360  loss = -2.610843
+Iter  380  loss = -2.621366
+Iter  400  loss = -2.645412
+Iter  420  loss = -2.666873
+Iter  440  loss = -2.674167
+Iter  460  loss = -2.663484
+Iter  480  loss = -2.678484
+Iter  500  loss = -2.654256
+Iter  520  loss = -2.679424
+Iter  540  loss = -2.680934
+Iter  560  loss = -2.681660
+Iter  580  loss = -2.682608
+Iter  600  loss = -2.683590
+Iter  620  loss = -2.684613
+Iter  640  loss = -2.685676
+Iter  660  loss = -2.686774
+Iter  680  loss = -2.687902
+Iter  700  loss = -2.689055
+Iter  720  loss = -2.690228
+Iter  740  loss = -2.690301
+Iter  760  loss = -2.692119
+Iter  780  loss = -2.693266
+Iter  800  loss = -2.693043
+Saved: results/models/Wang-Kuramoto-ude-xor-N5_clamp_outfield_sympair_settle10_seed1.jld2
+
+── XOR evaluation (trained UDE, reference) ─────────────────
+  FF  φ_out=+0.622π  target=-0.500π  ✗
+  FT  φ_out=-0.621π  target=+0.500π  ✗
+  TF  φ_out=+0.614π  target=+0.500π  ✓
+  TT  φ_out=-0.630π  target=-0.500π  ✓
+Accuracy: 2/4 = 50%   worst deviation from target 0.879π
+
+── XOR evaluation (trained UDE, rk4) ─────────────────
+  FF  φ_out=+0.622π  target=-0.500π  ✗
+  FT  φ_out=-0.621π  target=+0.500π  ✗
+  TF  φ_out=+0.614π  target=+0.500π  ✓
+  TT  φ_out=-0.630π  target=-0.500π  ✓
+Accuracy: 2/4 = 50%   worst deviation from target 0.879π
+
+── XOR evaluation (zero-coupling control, reference) ─────────────────
+  FF  φ_out=+0.972π  target=-0.500π  ✗
+  FT  φ_out=+0.972π  target=+0.500π  ✓
+  TF  φ_out=+0.972π  target=+0.500π  ✓
+  TT  φ_out=+0.972π  target=-0.500π  ✗
+Accuracy: 2/4 = 50%   worst deviation from target 0.528π
+RESULT N=5 variant=clamp_outfield_sympair_settle10 seed=1 final_loss=-2.694060 accuracy=2/4 maxdev=0.879pi rk4_dt0.1=2/4 control=2/4
+
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N5_clamp_outfield_sympair_settle10_seed1.png
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N5_clamp_outfield_sympair_settle10_seed1.pdf

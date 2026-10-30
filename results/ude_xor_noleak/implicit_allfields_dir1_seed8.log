@@ -1,0 +1,27 @@
+gradient check: cos(implicit, finite-diff) = 1.000000, |g|/|gfd| = 1.0000
+iter   200  loss -1.784449  max residual 7.8e-01
+iter   400  loss -0.019282  max residual 1.3e+00
+iter   600  loss -1.014015  max residual 1.1e+00
+iter   800  loss 1.159088  max residual 2.6e+00
+iter  1000  loss -0.314494  max residual 1.3e-09
+iter  1200  loss -0.996554  max residual 1.9e-01
+iter  1400  loss -1.666965  max residual 2.8e+00
+iter  1600  loss 1.260108  max residual 2.4e+00
+iter  1800  loss -1.366915  max residual 1.9e-10
+iter  2000  loss 0.472530  max residual 2.8e+00
+iter  2200  loss 4.665490  max residual 2.1e+00
+iter  2400  loss 5.729151  max residual 3.0e+00
+iter  2600  loss 0.725661  max residual 2.1e+00
+iter  2800  loss -1.364661  max residual 2.9e-10
+iter  3000  loss -2.374746  max residual 1.1e+00
+── trained, fixed initial state
+  FF  φ_out=-0.506π  target=-0.500π  ✓
+  FT  φ_out=+0.224π  target=+0.500π  ✓
+  TF  φ_out=-0.535π  target=+0.500π  ✗
+  TT  φ_out=-0.413π  target=-0.500π  ✓
+── control: zero coupling, output field kept
+  FF  φ_out=-0.604π  target=-0.500π  ✓
+  FT  φ_out=-0.604π  target=+0.500π  ✗
+  TF  φ_out=-0.604π  target=+0.500π  ✗
+  TT  φ_out=-0.604π  target=-0.500π  ✓
+RESULT N=5 variant=implicit_pair_allfields seed=8 final_loss=3.222653 accuracy=3/4 maxdev=0.965pi robust=0.825 robust_maxdev=0.992pi control=2/4

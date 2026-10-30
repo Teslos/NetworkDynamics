@@ -1,0 +1,109 @@
+
+[3088401] signal 15: Terminated
+in expression starting at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:365
++ at ./float.jl:495 [inlined]
+macro expansion at /home/ivt/.julia/packages/ForwardDiff/X74OO/src/partials.jl:156 [inlined]
+add_tuples at /home/ivt/.julia/packages/ForwardDiff/X74OO/src/partials.jl:207 [inlined]
++ at /home/ivt/.julia/packages/ForwardDiff/X74OO/src/partials.jl:80 [inlined]
++ at /home/ivt/.julia/packages/ForwardDiff/X74OO/src/dual.jl:487 [inlined]
+__generic_matvecmul! at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:974
+_generic_matvecmul! at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:993 [inlined]
+generic_matvecmul! at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:929 [inlined]
+_mul! at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:74 [inlined]
+mul! at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:71 [inlined]
+mul! at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:265 [inlined]
+* at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/usr/share/julia/stdlib/v1.12/LinearAlgebra/src/matmul.jl:60 [inlined]
+apply_nn at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:236
+edge_weight at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:248
+unknown function (ip: 0x7d028133ef0f) at (unknown file)
+#kuramoto_rhs##0 at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:289 [inlined]
+#kuramoto_rhs##0 at ./none:0
+iterate at ./generator.jl:48 [inlined]
+collect at ./array.jl:790
+unknown function (ip: 0x7d028133d52b) at (unknown file)
+kuramoto_rhs at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:285
+unknown function (ip: 0x7d028133d05d) at (unknown file)
+#rk4_integrate#9 at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:310
+rk4_integrate at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:304
+unknown function (ip: 0x7d0281348132) at (unknown file)
+loss_xor at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:338
+#11 at /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/Wang-Kuramoto.jl:349 [inlined]
+FixTail at /home/ivt/.julia/packages/DifferentiationInterface/zJHX8/src/utils/context.jl:169 [inlined]
+chunk_mode_gradient! at /home/ivt/.julia/packages/ForwardDiff/X74OO/src/gradient.jl:134
+gradient! at /home/ivt/.julia/packages/ForwardDiff/X74OO/src/gradient.jl:41 [inlined]
+value_and_gradient! at /home/ivt/.julia/packages/DifferentiationInterface/zJHX8/ext/DifferentiationInterfaceForwardDiffExt/onearg.jl:396
+unknown function (ip: 0x7d02813324a4) at (unknown file)
+fg! at /home/ivt/.julia/packages/OptimizationBase/1tTb9/src/OptimizationDIExt.jl:46
+unknown function (ip: 0x7d02813319a9) at (unknown file)
+macro expansion at /home/ivt/.julia/packages/OptimizationOptimisers/uWPTx/src/OptimizationOptimisers.jl:116 [inlined]
+macro expansion at /home/ivt/.julia/packages/Optimization/v3Ynm/src/utils.jl:32 [inlined]
+__solve at /home/ivt/.julia/packages/OptimizationOptimisers/uWPTx/src/OptimizationOptimisers.jl:98
+solve! at /home/ivt/.julia/packages/SciMLBase/rvXrA/src/solve.jl:226
+unknown function (ip: 0x7d0281356dde) at (unknown file)
+#solve#818 at /home/ivt/.julia/packages/SciMLBase/rvXrA/src/solve.jl:128
+solve at /home/ivt/.julia/packages/SciMLBase/rvXrA/src/solve.jl:125
+unknown function (ip: 0x7d028135633d) at (unknown file)
+jl_apply at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/julia.h:2391 [inlined]
+do_call at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/interpreter.c:123
+eval_value at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/interpreter.c:243
+eval_stmt_value at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/interpreter.c:194 [inlined]
+eval_body at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/interpreter.c:707
+jl_interpret_toplevel_thunk at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/interpreter.c:898
+jl_toplevel_eval_flex at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/toplevel.c:1035
+jl_toplevel_eval_flex at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/toplevel.c:975
+ijl_toplevel_eval at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/toplevel.c:1047
+ijl_toplevel_eval_in at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/toplevel.c:1092
+eval at ./boot.jl:489
+include_string at ./loading.jl:2874
+_include at ./loading.jl:2934
+include at ./Base.jl:306
+exec_options at ./client.jl:317
+_start at ./client.jl:550
+jfptr__start_63319.1 at /home/ivt/.julia/juliaup/julia-1.12.6+0.x64.linux.gnu/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/julia.h:2391 [inlined]
+true_main at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/jlapi.c:971
+jl_repl_entrypoint at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/src/jlapi.c:1139
+main at /cache/build/builder-amdci5-4/julialang/julia-release-1-dot-12/cli/loader_exe.c:58
+unknown function (ip: 0x7d0288c2a1c9) at /lib/x86_64-linux-gnu/libc.so.6
+__libc_start_main at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+unknown function (ip: 0x4010b8) at /workspace/srcdir/glibc-2.17/csu/../sysdeps/x86_64/start.S
+unknown function (ip: (nil)) at (unknown file)
+Allocations: 30415522736 (Pool: 30415521732; Big: 1004); GC: 983078
+Iter   20  loss = -0.868234
+Iter   40  loss = 0.765488
+Iter   60  loss = 0.096265
+Iter   80  loss = -0.274324
+Iter  100  loss = -0.582346
+Iter  120  loss = -0.762596
+Iter  140  loss = -1.170073
+Iter  160  loss = -1.237796
+Iter  180  loss = -1.562327
+Iter  200  loss = -1.660338
+Iter  220  loss = -1.481786
+Iter  240  loss = -1.578633
+Iter  260  loss = -1.651506
+Iter  280  loss = -1.589684
+Iter  300  loss = -0.844025
+Iter  320  loss = -1.333848
+Iter  340  loss = -1.460379
+Iter  360  loss = -1.662417
+Iter  380  loss = -0.012840
+Iter  400  loss = 0.278814
+Iter  420  loss = -0.644843
+Iter  440  loss = -1.300548
+Iter  460  loss = -1.740990
+Iter  480  loss = -1.666721
+Iter  500  loss = -2.071447
+Iter  520  loss = -2.181700
+Iter  540  loss = -2.235262
+Iter  560  loss = -2.292485
+Iter  580  loss = -2.330879
+Iter  600  loss = -2.371354
+Iter  620  loss = -2.408312
+Iter  640  loss = -2.296895
+Iter  660  loss = -2.389695
+Iter  680  loss = -2.393865
+Iter  700  loss = -2.399687
+Iter  720  loss = -2.405452
+Iter  740  loss = -2.411405
+Iter  760  loss = -2.416062

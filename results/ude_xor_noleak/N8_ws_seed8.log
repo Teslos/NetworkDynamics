@@ -1,0 +1,66 @@
+Iter   20  loss = -0.137647
+Iter   40  loss = -0.557626
+Iter   60  loss = -0.760872
+Iter   80  loss = -0.804529
+Iter  100  loss = -0.767808
+Iter  120  loss = -0.629540
+Iter  140  loss = -0.806238
+Iter  160  loss = -0.561776
+Iter  180  loss = -0.800179
+Iter  200  loss = -0.901699
+Iter  220  loss = -0.887077
+Iter  240  loss = -0.858842
+Iter  260  loss = -0.880982
+Iter  280  loss = -0.917857
+Iter  300  loss = 0.092665
+Iter  320  loss = -0.661863
+Iter  340  loss = 0.026289
+Iter  360  loss = 0.222016
+Iter  380  loss = -0.151692
+Iter  400  loss = -0.839562
+Iter  420  loss = -0.003515
+Iter  440  loss = -0.156792
+Iter  460  loss = -0.550840
+Iter  480  loss = -0.824427
+Iter  500  loss = -0.916492
+Iter  520  loss = -0.942669
+Iter  540  loss = -1.019176
+Iter  560  loss = -0.907532
+Iter  580  loss = -0.721320
+Iter  600  loss = -0.754074
+Iter  620  loss = -0.824782
+Iter  640  loss = -0.920361
+Iter  660  loss = -1.033798
+Iter  680  loss = -0.677229
+Iter  700  loss = -0.667379
+Iter  720  loss = -0.722720
+Iter  740  loss = -0.790766
+Iter  760  loss = -0.870601
+Iter  780  loss = -0.976770
+Iter  800  loss = -0.881705
+Saved: results/models/Wang-Kuramoto-ude-xor-N8_ws_seed8.jld2
+
+── XOR evaluation (trained UDE, reference) ─────────────────
+  FF  φ_out=-0.500π  target=-0.500π  ✓
+  FT  φ_out=-0.018π  target=+0.500π  ✗
+  TF  φ_out=-0.012π  target=+0.500π  ✗
+  TT  φ_out=+0.013π  target=-0.500π  ✗
+Accuracy: 1/4 = 25%
+
+── XOR evaluation (trained UDE, rk4) ─────────────────
+  FF  φ_out=-0.500π  target=-0.500π  ✓
+  FT  φ_out=-0.018π  target=+0.500π  ✗
+  TF  φ_out=-0.012π  target=+0.500π  ✗
+  TT  φ_out=+0.013π  target=-0.500π  ✗
+Accuracy: 1/4 = 25%
+
+── XOR evaluation (zero-coupling control, reference) ─────────────────
+  FF  φ_out=+0.000π  target=-0.500π  ✗
+  FT  φ_out=+0.000π  target=+0.500π  ✗
+  TF  φ_out=+0.000π  target=+0.500π  ✗
+  TT  φ_out=+0.000π  target=-0.500π  ✗
+Accuracy: 0/4 = 0%
+RESULT N=8 topology=ws seed=8 final_loss=-1.042766 accuracy=1/4 rk4_dt0.1=1/4 control=0/4
+
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N8_ws_seed8.png
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N8_ws_seed8.pdf

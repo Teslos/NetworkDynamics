@@ -1,0 +1,66 @@
+Iter   20  loss = -0.541436
+Iter   40  loss = -1.148837
+Iter   60  loss = -1.454924
+Iter   80  loss = -1.729092
+Iter  100  loss = 0.009060
+Iter  120  loss = -0.275577
+Iter  140  loss = -0.321112
+Iter  160  loss = -0.415560
+Iter  180  loss = 15.957213
+Iter  200  loss = -0.872408
+Iter  220  loss = -1.261923
+Iter  240  loss = -1.446131
+Iter  260  loss = -1.561186
+Iter  280  loss = -1.641515
+Iter  300  loss = -1.704287
+Iter  320  loss = -1.756392
+Iter  340  loss = -1.801400
+Iter  360  loss = -1.841479
+Iter  380  loss = -1.878082
+Iter  400  loss = -1.912281
+Iter  420  loss = -1.944946
+Iter  440  loss = -1.976753
+Iter  460  loss = -1.988583
+Iter  480  loss = -1.995752
+Iter  500  loss = -1.995293
+Iter  520  loss = -1.987587
+Iter  540  loss = -1.991238
+Iter  560  loss = -2.002789
+Iter  580  loss = -1.997028
+Iter  600  loss = -1.999570
+Iter  620  loss = -2.007448
+Iter  640  loss = -2.011616
+Iter  660  loss = -1.339713
+Iter  680  loss = -1.335895
+Iter  700  loss = -1.979380
+Iter  720  loss = -1.981939
+Iter  740  loss = -1.982935
+Iter  760  loss = -1.984152
+Iter  780  loss = -1.985417
+Iter  800  loss = -1.986698
+Saved: results/models/Wang-Kuramoto-ude-xor-N5_clamp_seed8.jld2
+
+── XOR evaluation (trained UDE, reference) ─────────────────
+  FF  φ_out=+0.020π  target=-0.500π  ✗
+  FT  φ_out=+0.500π  target=+0.500π  ✓
+  TF  φ_out=+0.500π  target=+0.500π  ✓
+  TT  φ_out=-0.500π  target=-0.500π  ✓
+Accuracy: 3/4 = 75%   worst deviation from target 0.520π
+
+── XOR evaluation (trained UDE, rk4) ─────────────────
+  FF  φ_out=+0.020π  target=-0.500π  ✗
+  FT  φ_out=+0.500π  target=+0.500π  ✓
+  TF  φ_out=+0.500π  target=+0.500π  ✓
+  TT  φ_out=-0.500π  target=-0.500π  ✓
+Accuracy: 3/4 = 75%   worst deviation from target 0.520π
+
+── XOR evaluation (zero-coupling control, reference) ─────────────────
+  FF  φ_out=+0.000π  target=-0.500π  ✗
+  FT  φ_out=+0.000π  target=+0.500π  ✗
+  TF  φ_out=+0.000π  target=+0.500π  ✗
+  TT  φ_out=+0.000π  target=-0.500π  ✗
+Accuracy: 0/4 = 0%   worst deviation from target 0.500π
+RESULT N=5 variant=clamp seed=8 final_loss=-2.011616 accuracy=3/4 maxdev=0.520pi rk4_dt0.1=3/4 control=0/4
+
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N5_clamp_seed8.png
+Saved: /home/ivt/CODE/NetworkDynamics/results/ude_xor_noleak/../../results/figures/kuramoto_xor_ude_N5_clamp_seed8.pdf
